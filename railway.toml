@@ -6,3 +6,5 @@ dockerfilePath = "Dockerfile"
 startCommand = "python -m bot.main"
 restartPolicyType = "ON_FAILURE"
 restartPolicyMaxRetries = 10
+healthcheckPath = "/health"
+healthcheckTimeout = 60
