@@ -14,10 +14,11 @@ from pyrogram.types import Message
 from bot.config import settings
 from bot.db.repo import (
     add_quota_used,
+    get_user,
     insert_job,
     update_job,
 )
-from bot.services.quota import QuotaError, assert_can_accept
+from bot.services.quota import QuotaError, _is_privileged, assert_can_accept
 from bot.services.splitter import part_size_for_count, split_file
 from bot.utils.format import bytes_human, progress_bar
 
@@ -41,11 +42,31 @@ class JobRequest:
     work_dir: Path = field(default_factory=lambda: settings.work_dir)
 
 
+class _NullCM:
+    """Async no-op context manager used when a job should bypass the
+    single-user queue (admin / VIP)."""
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *exc):
+        return False
+
+
 class JobManager:
-    """Single-process FIFO job runner with a global concurrency cap."""
+    """Single-process FIFO job runner with two layers of gating:
+
+    * ``_user_lock`` (Semaphore(1)) — only one *non-privileged* job may run
+      at a time. Other users get a "you've been queued" message and wait
+      their turn. Admin and VIPs bypass this lock entirely.
+    * ``_sem`` (Semaphore(max_concurrent_jobs)) — secondary cap that
+      includes admin/VIP traffic, so even unprivileged + admin combined
+      can't hammer the disk.
+    """
 
     def __init__(self) -> None:
         self._sem = asyncio.Semaphore(settings.max_concurrent_jobs)
+        self._user_lock = asyncio.Semaphore(1)
         self._active: dict[int, JobRequest] = {}
         self._lock = asyncio.Lock()
 
@@ -57,6 +78,11 @@ class JobManager:
     def active_jobs(self) -> list[JobRequest]:
         return list(self._active.values())
 
+    @property
+    def user_busy(self) -> bool:
+        """True iff the single-user lock is currently held by someone."""
+        return self._user_lock.locked()
+
     async def submit(self, client: Client, req: JobRequest) -> None:
         try:
             await assert_can_accept(req.user_id, req.file_size)
@@ -64,16 +90,33 @@ class JobManager:
             await client.send_message(req.chat_id, f"❌ {e}")
             return
 
+        user = await get_user(req.user_id)
+        privileged = _is_privileged(user)
+
         # The DB row for this job — useful for /jobs even when concurrency-capped.
         req.job_db_id = await insert_job(req.user_id, req.file_name, req.file_size)
-        async with self._sem:
-            async with self._lock:
-                self._active[req.job_db_id] = req
-            try:
-                await self._run(client, req)
-            finally:
+
+        # If a non-privileged user lands here while another non-privileged
+        # job is already running, surface a clear "queued" message instead
+        # of letting them stare at silence. Admin/VIP skip the lock entirely.
+        if not privileged and self.user_busy:
+            await client.send_message(
+                req.chat_id,
+                "⏳ *Bot is busy with another user.*\n"
+                "I've queued your job — you'll start automatically when the "
+                "current one finishes.",
+            )
+
+        gate = self._user_lock if not privileged else _NullCM()
+        async with gate:  # acquired immediately for admin/VIP
+            async with self._sem:
                 async with self._lock:
-                    self._active.pop(req.job_db_id, None)
+                    self._active[req.job_db_id] = req
+                try:
+                    await self._run(client, req)
+                finally:
+                    async with self._lock:
+                        self._active.pop(req.job_db_id, None)
 
     async def _run(self, client: Client, req: JobRequest) -> None:
         await update_job(req.job_db_id, status="running", mode=req.mode)

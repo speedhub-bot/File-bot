@@ -13,9 +13,11 @@ from pyrogram.types import Message
 from bot.config import settings
 from bot.db.repo import (
     all_user_ids,
+    get_user,
     list_recent_jobs,
     list_users,
     set_banned,
+    set_vip,
     stats,
 )
 from bot.services.jobs import jobs
@@ -98,6 +100,12 @@ def register(app: Client) -> None:
         if not text:
             await m.reply_text("Usage: `/broadcast <message>`")
             return
+        # Tag every broadcast with a credit footer so attribution survives
+        # forwards. Admin can opt out with `/broadcast --raw <text>`.
+        if text.startswith("--raw "):
+            text = text[len("--raw "):].strip()
+        else:
+            text = f"{text}\n\n— _broadcast via_ @akaza\\_inst"
         ids = await all_user_ids()
         sent = 0
         failed = 0
@@ -182,3 +190,97 @@ def register(app: Client) -> None:
             f"🧹 Freed `{bytes_human(max(0, before - after))}` "
             f"(was `{bytes_human(before)}`, now `{bytes_human(after)}`)."
         )
+
+    @app.on_message(filters.command(["grant", "revokevip"]))
+    async def on_vip(_: Client, m: Message) -> None:
+        if not _is_admin(m):
+            return
+        parts = (m.text or "").split()
+        if len(parts) < 2:
+            await m.reply_text(f"Usage: `{parts[0] if parts else '/grant'} <user_id>`")
+            return
+        try:
+            uid = int(parts[1])
+        except ValueError:
+            await m.reply_text("user_id must be a number.")
+            return
+        # Strip the optional `@botname` suffix Telegram appends in groups
+        # so `/grant@mybot` and `/grant` are treated the same.
+        cmd = parts[0].lstrip("/").split("@", 1)[0].lower()
+        ok = await set_vip(uid, cmd == "grant")
+        if not ok:
+            await m.reply_text(
+                "User not found in DB. They need to /start the bot at least once."
+            )
+            return
+        verb = "granted ⭐ VIP to" if cmd == "grant" else "revoked VIP from"
+        await m.reply_text(f"Done — {verb} `{uid}`.")
+
+    @app.on_message(filters.command(["info"]))
+    async def on_info(_: Client, m: Message) -> None:
+        if not _is_admin(m):
+            return
+        parts = (m.text or "").split()
+        if len(parts) < 2:
+            await m.reply_text("Usage: `/info <user_id>`")
+            return
+        try:
+            uid = int(parts[1])
+        except ValueError:
+            await m.reply_text("user_id must be a number.")
+            return
+        u = await get_user(uid)
+        if u is None:
+            await m.reply_text("No record for that user.")
+            return
+        tag = f"@{u.username}" if u.username else "(no username)"
+        flags: list[str] = []
+        if uid == settings.admin_id:
+            flags.append("👑 admin")
+        if u.is_vip:
+            flags.append("⭐ vip")
+        if u.is_banned:
+            flags.append("🚫 banned")
+        flag_line = " · ".join(flags) if flags else "👤 user"
+        await m.reply_text(
+            f"*ℹ️ User `{uid}`*\n"
+            f"Name: `{u.first_name or '?'}` {tag}\n"
+            f"Flags: {flag_line}\n"
+            f"Member since: `{u.created_at:%Y-%m-%d %H:%M UTC}`\n"
+            f"Total jobs: `{u.total_jobs}`\n"
+            f"Total bytes: `{bytes_human(u.total_bytes)}`\n"
+            f"Today: `{bytes_human(u.daily_used_bytes)}` / "
+            f"`{bytes_human(settings.per_user_daily_bytes)}` "
+            f"(reset `{u.daily_reset_at:%Y-%m-%d %H:%M UTC}`)"
+        )
+
+    @app.on_message(filters.command(["echo"]))
+    async def on_echo(client: Client, m: Message) -> None:
+        if not _is_admin(m):
+            return
+        parts = (m.text or "").split(maxsplit=2)
+        if len(parts) < 3:
+            await m.reply_text("Usage: `/echo <chat_id> <message…>`")
+            return
+        try:
+            chat_id = int(parts[1])
+        except ValueError:
+            await m.reply_text("chat_id must be a number.")
+            return
+        try:
+            await client.send_message(chat_id, parts[2])
+            await m.reply_text(f"📨 Sent to `{chat_id}`.")
+        except Exception as e:  # noqa: BLE001
+            await m.reply_text(f"❌ Send failed: `{e}`")
+
+    @app.on_message(filters.command(["restart"]))
+    async def on_restart(_: Client, m: Message) -> None:
+        if not _is_admin(m):
+            return
+        await m.reply_text("♻️ Restarting — see you in a few seconds.")
+        log.warning("Admin %s requested /restart — exiting.", m.from_user.id)
+        # Schedule the exit on the next event-loop tick so this reply gets
+        # delivered before the process dies. The platform (Railway / Fly /
+        # Docker --restart=always) brings us back automatically.
+        loop = asyncio.get_running_loop()
+        loop.call_later(0.5, lambda: os._exit(0))

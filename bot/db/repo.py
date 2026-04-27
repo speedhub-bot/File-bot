@@ -58,6 +58,21 @@ async def add_quota_used(user_id: int, n: int) -> None:
         await s.commit()
 
 
+async def get_user(user_id: int) -> User | None:
+    async with _SessionMaker() as s:
+        return await s.get(User, user_id)
+
+
+async def set_vip(user_id: int, vip: bool) -> bool:
+    async with _SessionMaker() as s:
+        u = await s.get(User, user_id)
+        if u is None:
+            return False
+        u.is_vip = vip
+        await s.commit()
+        return True
+
+
 async def set_banned(user_id: int, banned: bool) -> bool:
     async with _SessionMaker() as s:
         u = await s.get(User, user_id)

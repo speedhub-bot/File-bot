@@ -168,6 +168,41 @@ def test_merge_gap_warned_only_blocks_first_call() -> None:
     assert blocked_second is False
 
 
+def test_is_privileged_admin_and_vip(monkeypatch) -> None:
+    """Admin and VIPs must be marked privileged so they bypass the
+    single-user queue and the per-user daily quota."""
+    from bot.config import settings
+    from bot.services.quota import _is_privileged
+
+    class _U:
+        def __init__(self, uid, vip=False):
+            self.user_id = uid
+            self.is_vip = vip
+
+    monkeypatch.setattr(settings, "admin_id", 999)
+    assert _is_privileged(None) is False
+    assert _is_privileged(_U(1)) is False
+    assert _is_privileged(_U(1, vip=True)) is True
+    assert _is_privileged(_U(999)) is True  # admin
+
+
+def test_jobmanager_user_busy_starts_false() -> None:
+    """The single-user lock starts un-acquired — first non-VIP job must
+    not be told they're queued."""
+    import asyncio
+
+    from bot.services.jobs import JobManager
+
+    async def _check():
+        jm = JobManager()
+        assert jm.user_busy is False
+        async with jm._user_lock:
+            assert jm.user_busy is True
+        assert jm.user_busy is False
+
+    asyncio.run(_check())
+
+
 def test_url_filename_extraction() -> None:
     from bot.handlers.url import _filename_from_url
 
