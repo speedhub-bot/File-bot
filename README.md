@@ -1,5 +1,7 @@
 # File Bot
 
+_Bot by [@akaza_inst](https://t.me/akaza_inst)._
+
 A streaming Telegram **file-splitter / re-uploader / merger** built with
 [Pyrogram] (MTProto), so it bypasses the 20 MB Bot HTTP API ceiling and can
 handle files up to **2 GB per part**. Designed to run on a 1 GB Railway free
@@ -24,14 +26,21 @@ tier (or any small VPS) without ever buffering whole files in RAM.
   configured cap (default 900 MB, fits Railway's 1 GB volume).
 - **Per-user daily quota** (default 10 GB / day, configurable; `0` =
   unlimited).
+- **Single-user queue** — only one non-VIP job runs at a time so users
+  don't crash each other on the 1 GB volume; queued users get a clear
+  "please wait" notice. **Admin and VIPs bypass the queue.**
 - **Concurrency cap** — global semaphore (default 2 jobs at a time).
 - **Per-part immediate deletion** keeps disk footprint flat regardless of
   total file size.
 - **Live progress messages** with edit-rate limiting (1 edit/sec).
 - **HTTP `/health` + `/ready` endpoints** so Railway / Fly / Koyeb
   don't kill the container for failing healthchecks.
+- **Profile card** — `/profile` shows your stats, role, and quota.
+- **Interactive `/help`** with category buttons (Files / URL / Merge /
+  Profile / Queue / Admin).
 - **Admin commands**: `/stats`, `/jobs`, `/users`, `/broadcast`,
-  `/ban`, `/unban`, `/cleanup`, `/diag`.
+  `/ban`, `/unban`, `/cleanup`, `/diag`, `/grant`, `/revokevip`,
+  `/info`, `/echo`, `/restart`.
 
 ## Credentials
 
@@ -132,8 +141,9 @@ All tunables are env vars (see `.env.example`):
 ## Commands
 
 ### User commands
-- `/start` — welcome message
-- `/help` — usage instructions
+- `/start` — welcome message + buttons
+- `/help` — interactive help with category buttons
+- `/profile` — your stats card (jobs, bytes, daily quota left, role)
 - `/url <link>` — stream-download a URL and split
 - `/merge start` / `/merge done <name>` / `/merge cancel` / `/merge status`
 - `/cancel` — abort a pending split prompt
@@ -143,9 +153,14 @@ All tunables are env vars (see `.env.example`):
 - `/stats` — user count, jobs, disk usage, budget remaining
 - `/jobs` — currently running + last 10 completed
 - `/users` — top 30 users by total bytes processed
-- `/broadcast <message>` — send a message to every user
-- `/ban <user_id>` / `/unban <user_id>`
+- `/broadcast <message>` — send a message to every non-banned user
+- `/echo <chat_id> <message>` — DM a single chat as the bot
+- `/ban <id>` / `/unban <id>` — toggle bot access
+- `/grant <id>` / `/revokevip <id>` — promote/demote VIP (skips queue +
+  daily quota)
+- `/info <id>` — full record for a user
 - `/cleanup` — wipe stale `job-*` directories from `WORK_DIR`
+- `/restart` — exit(0); platform restarts the container
 - `/diag` — runtime diagnostics (Python / Pyrogram / disk / port / env)
 
 ## Architecture

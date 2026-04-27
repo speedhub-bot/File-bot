@@ -30,6 +30,16 @@ def disk_used_bytes() -> int:
     return total
 
 
+def _is_privileged(user) -> bool:
+    """Admin or VIP — exempt from per-user daily quota and queue gating.
+    Disk headroom still applies to everyone (it's a safety net, not a policy)."""
+    if user is None:
+        return False
+    if user.user_id == settings.admin_id:
+        return True
+    return bool(getattr(user, "is_vip", False))
+
+
 async def assert_can_accept(user_id: int, file_size: int) -> None:
     """Raise QuotaError if accepting a file of this size is unsafe."""
 
@@ -38,6 +48,7 @@ async def assert_can_accept(user_id: int, file_size: int) -> None:
         u = await s.get(User, user_id)
         if u is not None and u.is_banned:
             raise QuotaError("You are banned from using this bot.")
+    privileged = _is_privileged(u)
 
     # 1. Headroom on disk: need ~2.0x the file size — once for the original on
     #    disk plus the part files we'll write before each upload+delete.
@@ -52,8 +63,8 @@ async def assert_can_accept(user_id: int, file_size: int) -> None:
             f"{bytes_human(available)}). Try again once another job finishes."
         )
 
-    # 2. Per-user daily quota
-    if settings.per_user_daily_bytes > 0:
+    # 2. Per-user daily quota — skipped for admin / VIP.
+    if not privileged and settings.per_user_daily_bytes > 0:
         u = await reset_quota_if_needed(user_id)
         if u.daily_used_bytes + file_size > settings.per_user_daily_bytes:
             remaining = max(0, settings.per_user_daily_bytes - u.daily_used_bytes)

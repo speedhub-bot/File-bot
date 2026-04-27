@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import AsyncIterator
 
-from sqlalchemy import BigInteger, Boolean, DateTime, Integer, String, Text
+from sqlalchemy import BigInteger, Boolean, DateTime, Integer, String, Text, text
 from sqlalchemy.ext.asyncio import (
     AsyncSession,
     async_sessionmaker,
@@ -25,6 +25,7 @@ class User(Base):
     username: Mapped[str | None] = mapped_column(String(64))
     first_name: Mapped[str | None] = mapped_column(String(128))
     is_banned: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    is_vip: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     daily_used_bytes: Mapped[int] = mapped_column(BigInteger, default=0, nullable=False)
     daily_reset_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=datetime.utcnow, nullable=False
@@ -60,6 +61,28 @@ _SessionMaker = async_sessionmaker(_engine, expire_on_commit=False, class_=Async
 async def init_db() -> None:
     async with _engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        # Lightweight in-place migrations for SQLite users upgrading from v2.
+        # SQLAlchemy's create_all only creates *new* tables; columns added to
+        # existing models won't appear unless we ALTER TABLE ourselves.
+        await _add_column_if_missing(conn, "users", "is_vip",
+                                     "BOOLEAN NOT NULL DEFAULT 0")
+
+
+async def _add_column_if_missing(conn, table: str, column: str, decl: str) -> None:
+    dialect = conn.dialect.name
+    if dialect == "sqlite":
+        rows = (await conn.execute(text(f"PRAGMA table_info({table})"))).all()
+        if any(r[1] == column for r in rows):
+            return
+        await conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {column} {decl}"))
+    else:
+        try:
+            await conn.execute(
+                text(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {column} {decl}")
+            )
+        except Exception:  # noqa: BLE001
+            # Best-effort; if it fails the column probably already exists.
+            pass
 
 
 async def session() -> AsyncIterator[AsyncSession]:
