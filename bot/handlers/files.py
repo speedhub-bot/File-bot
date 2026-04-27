@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import re
 
 from pyrogram import Client, filters
 from pyrogram.types import (
@@ -17,21 +18,40 @@ log = logging.getLogger(__name__)
 # A user-level mailbox of "messages awaiting a split decision". Keyed by user_id.
 PENDING: dict[int, dict] = {}
 
+# Filenames coming off Telegram messages are user-controlled, so they must be
+# sanitized before being used as a filesystem path component.
+_BAD_CHARS = re.compile(r'[\x00-\x1f<>:"/\\|?*]+')
+
+
+def _safe_filename(raw: str | None, fallback: str) -> str:
+    """Strip directory components and dangerous characters from a user-supplied
+    filename. Falls back to ``fallback`` if nothing usable remains."""
+
+    if not raw:
+        return fallback
+    # Drop anything that looks like a path component on either OS by
+    # normalizing both separators and taking the basename.
+    name = raw.replace("\\", "/").rsplit("/", 1)[-1]
+    name = _BAD_CHARS.sub("_", name).strip(" .")
+    if not name or name in {".", ".."}:
+        return fallback
+    return name[:200]  # cap length to keep filesystem happy
+
 
 def _file_meta(m: Message) -> tuple[str, int] | None:
-    """Return (filename, size) for any file-bearing message, or None."""
+    """Return (sanitized_filename, size) for any file-bearing message, or None."""
     if m.document:
-        return m.document.file_name or "file.bin", m.document.file_size or 0
+        return _safe_filename(m.document.file_name, "file.bin"), m.document.file_size or 0
     if m.video:
-        return m.video.file_name or f"video-{m.id}.mp4", m.video.file_size or 0
+        return _safe_filename(m.video.file_name, f"video-{m.id}.mp4"), m.video.file_size or 0
     if m.audio:
-        return m.audio.file_name or f"audio-{m.id}.mp3", m.audio.file_size or 0
+        return _safe_filename(m.audio.file_name, f"audio-{m.id}.mp3"), m.audio.file_size or 0
     if m.voice:
         return f"voice-{m.id}.ogg", m.voice.file_size or 0
     if m.video_note:
         return f"video-note-{m.id}.mp4", m.video_note.file_size or 0
     if m.animation:
-        return m.animation.file_name or f"anim-{m.id}.mp4", m.animation.file_size or 0
+        return _safe_filename(m.animation.file_name, f"anim-{m.id}.mp4"), m.animation.file_size or 0
     if m.photo:
         return f"photo-{m.id}.jpg", m.photo.file_size or 0
     if m.sticker:

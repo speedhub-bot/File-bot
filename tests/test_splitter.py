@@ -15,7 +15,8 @@ os.environ.setdefault("API_ID", "1")
 os.environ.setdefault("API_HASH", "x")
 os.environ.setdefault("ADMIN_ID", "1")
 
-from bot.services.splitter import part_size_for_count, split_file  # noqa: E402
+from bot.handlers.files import _safe_filename  # noqa: E402
+from bot.services.splitter import part_filename, part_size_for_count, split_file  # noqa: E402
 from bot.utils.format import parse_count, parse_size  # noqa: E402
 from bot.utils.text import find_split_offset, looks_like_text  # noqa: E402
 
@@ -41,6 +42,29 @@ def test_part_size_for_count() -> None:
     assert part_size_for_count(1000, 4) == 250
     assert part_size_for_count(1001, 4) == 251
     assert part_size_for_count(1000, 1) == 1000
+
+
+def test_part_filename_no_total_in_name() -> None:
+    # Should NOT embed "of-N" — only a zero-padded index.
+    name = part_filename("movie.mkv", 3, 12)
+    assert name == "movie.part-03.mkv"
+    # No suffix case
+    assert part_filename("README", 1, 5) == "README.part-01"
+    # Index padding widens with larger estimated totals
+    assert part_filename("a.bin", 7, 100) == "a.part-007.bin"
+
+
+def test_safe_filename_strips_path_traversal() -> None:
+    assert _safe_filename("../../etc/passwd", "fb") == "passwd"
+    assert _safe_filename("/etc/shadow", "fb") == "shadow"
+    assert _safe_filename("..\\..\\evil.bat", "fb") == "evil.bat"
+    assert _safe_filename("normal.txt", "fb") == "normal.txt"
+    # Pure path components → fallback
+    assert _safe_filename("..", "fb") == "fb"
+    assert _safe_filename("", "fb") == "fb"
+    assert _safe_filename(None, "fb") == "fb"
+    # Embedded NULs / control chars stripped
+    assert _safe_filename("foo\x00.txt", "fb") == "foo_.txt"
 
 
 def test_find_split_offset_prefers_newline() -> None:

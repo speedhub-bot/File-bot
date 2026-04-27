@@ -160,7 +160,12 @@ class JobManager:
         raise ValueError(f"unknown split mode {req.mode!r}")
 
     async def _download(self, client: Client, req: JobRequest, job_dir: Path) -> Path:
-        target = job_dir / req.file_name
+        # Defense in depth: even if the handler somehow lets a path-bearing
+        # filename through, only its basename is ever used here.
+        safe_name = Path(req.file_name).name or "file.bin"
+        target = (job_dir / safe_name).resolve()
+        if job_dir.resolve() not in target.parents:
+            raise RuntimeError("Refusing to download outside the job directory.")
         # Pyrogram's progress_args lets us pass our own state.
         state = {"last": 0.0}
         total = max(1, req.file_size)

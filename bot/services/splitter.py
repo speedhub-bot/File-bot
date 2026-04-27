@@ -23,20 +23,21 @@ class Part:
     size: int
 
 
-def part_filename(base: str, index: int, total: int) -> str:
-    """`movie.mkv` + (3, 12) -> `movie.part-03-of-12.mkv`. For files without an
-    extension we just append the suffix."""
+def part_filename(base: str, index: int, est_total: int) -> str:
+    """`movie.mkv` + (3, ~12) -> `movie.part-03.mkv`. ``est_total`` is only
+    used to zero-pad the index — the actual number of parts emitted by the
+    text splitter can drift from the estimate (since cuts move to line/word
+    boundaries), so we deliberately do *not* embed the total in the name."""
 
     p = Path(base)
     stem = p.stem if p.suffix else p.name
     suffix = p.suffix
-    width = max(2, len(str(total)))
-    tag = f".part-{index:0{width}d}-of-{total:0{width}d}"
-    return f"{stem}{tag}{suffix}"
+    width = max(2, len(str(max(1, est_total))))
+    return f"{stem}.part-{index:0{width}d}{suffix}"
 
 
 async def _byte_split(
-    src: Path, dst_dir: Path, target_size: int, total_parts: int,
+    src: Path, dst_dir: Path, target_size: int, est_parts: int,
     progress: Callable[[int, int], Awaitable[None]] | None,
 ) -> AsyncIterator[Part]:
     """Split ``src`` at exact byte offsets — safe for binary data."""
@@ -49,7 +50,7 @@ async def _byte_split(
     with src.open("rb") as fh:
         while True:
             idx += 1
-            out_path = dst_dir / part_filename(src.name, idx, total_parts)
+            out_path = dst_dir / part_filename(src.name, idx, est_parts)
             remaining_in_part = target_size
             with out_path.open("wb") as out:
                 while remaining_in_part > 0:
@@ -72,7 +73,7 @@ async def _byte_split(
 
 
 async def _text_split(
-    src: Path, dst_dir: Path, target_size: int, total_parts: int,
+    src: Path, dst_dir: Path, target_size: int, est_parts: int,
     progress: Callable[[int, int], Awaitable[None]] | None,
 ) -> AsyncIterator[Part]:
     """Split ``src`` aligning each cut to the nearest line / whitespace
@@ -98,7 +99,7 @@ async def _text_split(
 
             if len(buf) <= target_size + slack and fh.read(1) == b"":
                 # Last chunk: write everything we have.
-                out_path = dst_dir / part_filename(src.name, idx, total_parts)
+                out_path = dst_dir / part_filename(src.name, idx, est_parts)
                 out_path.write_bytes(buf)
                 bytes_emitted += len(buf)
                 if progress:
@@ -111,7 +112,7 @@ async def _text_split(
             fh.seek(-1, 1)
             cut = find_split_offset(buf, target_size, slack)
             cut = max(1, min(cut, len(buf)))
-            out_path = dst_dir / part_filename(src.name, idx, total_parts)
+            out_path = dst_dir / part_filename(src.name, idx, est_parts)
             out_path.write_bytes(buf[:cut])
             carry = buf[cut:]
             bytes_emitted += cut
@@ -133,11 +134,11 @@ async def split_file(
 
     dst_dir.mkdir(parents=True, exist_ok=True)
     total_size = src.stat().st_size
-    total_parts = max(1, math.ceil(total_size / max(1, part_size)))
+    est_parts = max(1, math.ceil(total_size / max(1, part_size)))
     is_text = looks_like_text(src)
 
     impl = _text_split if is_text else _byte_split
-    async for part in impl(src, dst_dir, part_size, total_parts, progress):
+    async for part in impl(src, dst_dir, part_size, est_parts, progress):
         yield part
         # yield to event loop so progress edits / uploads can interleave
         await asyncio.sleep(0)
