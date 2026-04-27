@@ -67,6 +67,30 @@ def test_safe_filename_strips_path_traversal() -> None:
     assert _safe_filename("foo\x00.txt", "fb") == "foo_.txt"
 
 
+def test_merge_extract_index() -> None:
+    from bot.handlers.merge import _extract_index
+
+    assert _extract_index("movie.part-03.mkv") == 3
+    assert _extract_index("movie.part-007.bin") == 7
+    # Legacy names from earlier versions.
+    assert _extract_index("movie.part-03-of-12.mkv") == 3
+    # Files without the part suffix shouldn't match.
+    assert _extract_index("notes.txt") is None
+    assert _extract_index("backup.tar.gz") is None
+
+
+def test_url_filename_extraction() -> None:
+    from bot.handlers.url import _filename_from_url
+
+    assert _filename_from_url("https://example.com/path/file.zip", 1) == "file.zip"
+    # URL-encoded spaces should round-trip and be sanitized.
+    assert _filename_from_url("https://example.com/My%20Doc.pdf", 1) == "My Doc.pdf"
+    # No path → fallback.
+    assert _filename_from_url("https://example.com", 42) == "download-42.bin"
+    # Path traversal in URL paths still gets stripped.
+    assert _filename_from_url("https://x/../../etc/passwd", 1) == "passwd"
+
+
 def test_quota_blocks_banned_users() -> None:
     """assert_can_accept must raise QuotaError for banned users — defense in
     depth in case the handler-level ban check is bypassed."""

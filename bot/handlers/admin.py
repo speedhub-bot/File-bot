@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
+import platform
 import shutil
+import sys
 
 from pyrogram import Client, filters
 from pyrogram.types import Message
@@ -123,6 +126,43 @@ def register(app: Client) -> None:
             return
         ok = await set_banned(uid, parts[0].lstrip("/").startswith("ban"))
         await m.reply_text("Done." if ok else "User not found.")
+
+    @app.on_message(filters.command(["diag"]))
+    async def on_diag(_: Client, m: Message) -> None:
+        """Print runtime diagnostics — useful when chasing platform issues
+        (Railway, Fly, etc.)."""
+        if not _is_admin(m):
+            return
+        try:
+            import pyrogram as _pyro
+
+            pyro_ver = getattr(_pyro, "__version__", "?")
+        except Exception:  # noqa: BLE001
+            pyro_ver = "?"
+        env_keys = sorted(
+            k for k in os.environ
+            if k in {"BOT_TOKEN", "API_ID", "API_HASH", "ADMIN_ID",
+                     "WORK_DIR", "DATABASE_URL", "PORT", "RAILWAY_PROJECT_ID",
+                     "FLY_APP_NAME", "KOYEB_APP_NAME"}
+        )
+        await m.reply_text(
+            "*🩺 Diagnostics*\n"
+            f"Python: `{sys.version.split()[0]}`\n"
+            f"Platform: `{platform.platform()}`\n"
+            f"Pyrogram: `{pyro_ver}`\n"
+            f"PID: `{os.getpid()}`\n"
+            f"CWD: `{os.getcwd()}`\n"
+            f"work_dir: `{settings.work_dir}` "
+            f"(exists=`{settings.work_dir.exists()}`)\n"
+            f"DB: `{settings.database_url}`\n"
+            f"Health port: `{settings.port}`\n"
+            f"Disk used: `{bytes_human(disk_used_bytes())}` / "
+            f"`{bytes_human(settings.disk_budget_bytes)}` budget\n"
+            f"FS free: `{bytes_human(free_disk_bytes())}`\n"
+            f"Concurrency cap: `{settings.max_concurrent_jobs}` / "
+            f"active=`{jobs.active_count}`\n"
+            f"Env keys present: `{env_keys}`"
+        )
 
     @app.on_message(filters.command(["cleanup"]))
     async def on_cleanup(_: Client, m: Message) -> None:

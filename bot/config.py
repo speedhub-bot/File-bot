@@ -18,6 +18,11 @@ class Settings(BaseSettings):
     disk_budget_bytes: int = Field(default=943_718_400, alias="DISK_BUDGET_BYTES")
     per_user_daily_bytes: int = Field(default=10_737_418_240, alias="PER_USER_DAILY_BYTES")
 
+    # HTTP health endpoint — Railway / Fly / Koyeb expect *something* bound
+    # to $PORT, otherwise they consider the deploy unhealthy and kill it.
+    port: int = Field(default=8080, alias="PORT")
+    health_host: str = Field(default="0.0.0.0", alias="HEALTH_HOST")
+
     default_auto_part_bytes: int = Field(default=52_428_800, alias="DEFAULT_AUTO_PART_BYTES")
     max_part_bytes: int = Field(default=2_093_796_556, alias="MAX_PART_BYTES")
     max_concurrent_jobs: int = Field(default=2, alias="MAX_CONCURRENT_JOBS")
