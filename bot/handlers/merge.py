@@ -45,6 +45,7 @@ def _ensure_session(user_id: int) -> dict:
             "output_name": None,
             "started_at": time.time(),
             "total_size": 0,
+            "gap_warned": False,
         }
         SESSIONS[user_id] = sess
     return sess
@@ -121,9 +122,12 @@ def register(app: Client) -> None:
                 return
 
             indices = sorted(sess["parts"].keys())
-            # Warn if there are gaps in the sequence.
+            # Warn once if there are gaps in the sequence; on the second
+            # /merge done call we proceed with whatever the user has — that's
+            # the contract the warning message promises.
             gaps = [i for i in range(indices[0], indices[-1] + 1) if i not in sess["parts"]]
-            if gaps:
+            if gaps and not sess.get("gap_warned"):
+                sess["gap_warned"] = True
                 await m.reply_text(
                     f"⚠️ Missing parts: `{gaps}`. Send them and retry, or "
                     "`/merge done` again to merge what you have."
@@ -199,6 +203,19 @@ def register(app: Client) -> None:
         except Exception as e:  # noqa: BLE001
             await notice.edit_text(f"❌ Failed: `{e}`")
             return
+        # If the user re-sends a part with the same index, drop the old file
+        # on disk and adjust total_size so quota / progress numbers stay
+        # accurate.
+        old = sess["parts"].get(idx)
+        if old is not None:
+            try:
+                sess["total_size"] -= old.stat().st_size
+            except OSError:
+                pass
+            try:
+                old.unlink(missing_ok=True)
+            except OSError:
+                pass
         sess["parts"][idx] = target
         sess["total_size"] += size
         await notice.edit_text(

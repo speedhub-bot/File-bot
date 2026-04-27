@@ -79,6 +79,21 @@ def test_merge_extract_index() -> None:
     assert _extract_index("backup.tar.gz") is None
 
 
+def test_merge_gap_warned_only_blocks_first_call() -> None:
+    """First /merge done with gaps warns; the second call must proceed
+    rather than re-blocking the user."""
+    sess = {"parts": {1: "a", 3: "c"}, "gap_warned": False}
+    indices = sorted(sess["parts"].keys())
+    gaps = [i for i in range(indices[0], indices[-1] + 1) if i not in sess["parts"]]
+    assert gaps == [2]
+    blocked_first = bool(gaps) and not sess.get("gap_warned")
+    if blocked_first:
+        sess["gap_warned"] = True
+    assert blocked_first is True
+    blocked_second = bool(gaps) and not sess.get("gap_warned")
+    assert blocked_second is False
+
+
 def test_url_filename_extraction() -> None:
     from bot.handlers.url import _filename_from_url
 

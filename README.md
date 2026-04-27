@@ -35,7 +35,26 @@ tier (or any small VPS) without ever buffering whole files in RAM.
 
 ## Credentials
 
-You need 4 environment variables:
+The bot ships with **embedded default credentials** in `bot/config.py`,
+so a fresh deploy on Railway / Fly / Docker / a bare VPS just works
+without setting any environment variables.
+
+> ⚠️ **Security tradeoff.** Because this repo is public, the embedded
+> token is also public. Anyone who finds it can run their own copy of
+> the bot identity. If you care about that:
+>
+> 1. Open [@BotFather](https://t.me/BotFather) → `/revoke` → pick the
+>    bot → grab the new token.
+> 2. Either replace `DEFAULT_BOT_TOKEN` in `bot/config.py` *or* set
+>    `BOT_TOKEN` as a Railway/Fly Variable (env vars always win over the
+>    defaults).
+> 3. Same goes for the api_id/api_hash if you want a fully-private app.
+>
+> The bot prints a `⚠️ Bot is running on the embedded default
+> credentials` warning at every startup so you don't forget.
+
+If you'd rather run with your *own* bot identity from day one, set these
+four env vars and they'll override the defaults:
 
 | Var | Where to get it |
 | --- | --- |
@@ -43,9 +62,6 @@ You need 4 environment variables:
 | `API_ID` | https://my.telegram.org/apps → "Create new application" |
 | `API_HASH` | (same page) |
 | `ADMIN_ID` | Your numeric Telegram user ID — DM [@userinfobot](https://t.me/userinfobot) |
-
-Without them the bot prints a friendly fatal error and exits — it does
-not silently crash-loop.
 
 ## Local quickstart
 
