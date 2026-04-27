@@ -112,7 +112,12 @@ def register(app: Client) -> None:
             ) as c:
                 head = await c.head(url)
             head.raise_for_status()
-            content_length = int(head.headers.get("content-length", "0"))
+            try:
+                content_length = int(head.headers.get("content-length", "0"))
+            except ValueError:
+                # Non-numeric Content-Length (e.g. chunked transfer) — treat
+                # as unknown and skip the up-front quota check.
+                content_length = 0
         except httpx.HTTPError as e:
             await m.reply_text(f"❌ Couldn't reach that URL: `{e}`")
             return
