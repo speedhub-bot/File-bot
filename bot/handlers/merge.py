@@ -42,6 +42,9 @@ def _ensure_session(user_id: int) -> dict:
         sess = {
             "dir": d,
             "parts": {},
+            "sizes": {},  # idx -> last-recorded size, used to undo the
+                          # previous contribution to total_size when a user
+                          # re-sends a part with the same index.
             "output_name": None,
             "started_at": time.time(),
             "total_size": 0,
@@ -197,26 +200,38 @@ def register(app: Client) -> None:
         target = sess["dir"] / _safe_filename(
             m.document.file_name, f"part-{idx}.bin"
         )
+        prev_path = sess["parts"].get(idx)
+        prev_size = sess["sizes"].get(idx, 0)
+
         notice = await m.reply_text(f"⬇️  Receiving part #{idx} ({bytes_human(size)})…")
         try:
             await client.download_media(message=m, file_name=str(target))
         except Exception as e:  # noqa: BLE001
+            # If the new download was about to overwrite the same path used by
+            # the previous part for this index, that file may now be partially
+            # clobbered. Drop the entry so /merge done can't try to read a
+            # corrupt part. For different-path failures the previous entry is
+            # still good — leave the session untouched.
+            if prev_path is not None and prev_path == target:
+                sess["parts"].pop(idx, None)
+                sess["sizes"].pop(idx, None)
+                sess["total_size"] -= prev_size
             await notice.edit_text(f"❌ Failed: `{e}`")
             return
-        # If the user re-sends a part with the same index, drop the old file
-        # on disk and adjust total_size so quota / progress numbers stay
-        # accurate.
-        old = sess["parts"].get(idx)
-        if old is not None:
-            try:
-                sess["total_size"] -= old.stat().st_size
-            except OSError:
-                pass
-            try:
-                old.unlink(missing_ok=True)
-            except OSError:
-                pass
+
+        # Download succeeded — apply the rollback + bookkeeping atomically.
+        if prev_path is not None:
+            sess["total_size"] -= prev_size
+            # Same-path resends were just overwritten by download_media, so
+            # we must NOT unlink. Different-path resends leave an orphan that
+            # we clean up here.
+            if prev_path != target:
+                try:
+                    prev_path.unlink(missing_ok=True)
+                except OSError:
+                    pass
         sess["parts"][idx] = target
+        sess["sizes"][idx] = size
         sess["total_size"] += size
         await notice.edit_text(
             f"✅ Got part #{idx}. Total received: `{len(sess['parts'])}` "

@@ -79,6 +79,80 @@ def test_merge_extract_index() -> None:
     assert _extract_index("backup.tar.gz") is None
 
 
+def _simulate_collect(sess: dict, idx: int, filename: str, size: int,
+                      *, fail: bool = False) -> None:
+    """Mirror of bot/handlers/merge.py::collect_part dedup + bookkeeping
+    so we can exercise both success and failure paths in unit tests."""
+    target = sess["dir"] / filename
+    prev_path = sess["parts"].get(idx)
+    prev_size = sess["sizes"].get(idx, 0)
+
+    if fail:
+        # Simulate a partial download corrupting the same-path file.
+        if prev_path == target and target.exists():
+            target.write_bytes(b"\x00" * 1)  # corrupted partial
+        if prev_path is not None and prev_path == target:
+            sess["parts"].pop(idx, None)
+            sess["sizes"].pop(idx, None)
+            sess["total_size"] -= prev_size
+        return
+
+    # Successful download: write the new bytes (overwriting if same path).
+    target.write_bytes(b"x" * size)
+
+    if prev_path is not None:
+        sess["total_size"] -= prev_size
+        if prev_path != target:
+            prev_path.unlink(missing_ok=True)
+    sess["parts"][idx] = target
+    sess["sizes"][idx] = size
+    sess["total_size"] += size
+
+
+def test_merge_dedup_same_filename_does_not_self_destruct(tmp_path) -> None:
+    sess = {"parts": {}, "sizes": {}, "total_size": 0, "dir": tmp_path}
+    idx = 3
+
+    _simulate_collect(sess, idx, "movie.part-03.mkv", 100)
+    assert sess["total_size"] == 100
+    assert sess["parts"][idx].stat().st_size == 100
+
+    # Re-send same filename: file must survive the dedup and total_size must
+    # reflect only the new size, not new + old.
+    _simulate_collect(sess, idx, "movie.part-03.mkv", 250)
+    assert sess["total_size"] == 250
+    assert sess["parts"][idx].stat().st_size == 250
+
+    # Re-send different filename for same idx: orphan must be removed.
+    _simulate_collect(sess, idx, "movie.part-3.mkv", 80)
+    assert sess["total_size"] == 80
+    assert sess["parts"][idx].name == "movie.part-3.mkv"
+    assert not (tmp_path / "movie.part-03.mkv").exists()
+
+
+def test_merge_failed_resend_does_not_corrupt_session(tmp_path) -> None:
+    """If download_media raises while replacing a part:
+       * same-path failure → entry must be dropped (file is partially clobbered)
+       * different-path failure → entry must be unchanged (old part still usable)
+    """
+    sess = {"parts": {}, "sizes": {}, "total_size": 0, "dir": tmp_path}
+    idx = 3
+
+    _simulate_collect(sess, idx, "movie.part-03.mkv", 100)
+    snapshot = (sess["parts"][idx], sess["sizes"][idx], sess["total_size"])
+
+    # Different-path failure → session untouched.
+    _simulate_collect(sess, idx, "movie.part-3.mkv", 999, fail=True)
+    assert (sess["parts"][idx], sess["sizes"][idx], sess["total_size"]) == snapshot, \
+        "different-path failure must not mutate session state"
+
+    # Same-path failure → entry must be dropped, total_size rolled back.
+    _simulate_collect(sess, idx, "movie.part-03.mkv", 999, fail=True)
+    assert idx not in sess["parts"], "same-path failure must drop the entry"
+    assert idx not in sess["sizes"]
+    assert sess["total_size"] == 0
+
+
 def test_merge_gap_warned_only_blocks_first_call() -> None:
     """First /merge done with gaps warns; the second call must proceed
     rather than re-blocking the user."""
