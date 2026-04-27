@@ -67,6 +67,36 @@ def test_safe_filename_strips_path_traversal() -> None:
     assert _safe_filename("foo\x00.txt", "fb") == "foo_.txt"
 
 
+def test_quota_blocks_banned_users() -> None:
+    """assert_can_accept must raise QuotaError for banned users — defense in
+    depth in case the handler-level ban check is bypassed."""
+
+    import tempfile
+
+    from bot.config import settings as _settings
+    from bot.db.db import User, _SessionMaker, init_db
+    from bot.services.quota import QuotaError, assert_can_accept
+
+    async def _run() -> None:
+        # Use a temporary work_dir so disk_used_bytes isn't influenced by
+        # whatever else is on the box.
+        with tempfile.TemporaryDirectory() as d:
+            _settings.work_dir = Path(d)
+            await init_db()
+            async with _SessionMaker() as s:
+                u = User(user_id=99001, username="b", first_name="b", is_banned=True)
+                s.add(u)
+                await s.commit()
+            try:
+                await assert_can_accept(99001, 1024)
+            except QuotaError as e:
+                assert "banned" in str(e).lower()
+                return
+            raise AssertionError("expected QuotaError for banned user")
+
+    asyncio.run(_run())
+
+
 def test_find_split_offset_prefers_newline() -> None:
     buf = b"line1\nline2\nline3\nline4\n"
     cut = find_split_offset(buf, target=10, slack=4)

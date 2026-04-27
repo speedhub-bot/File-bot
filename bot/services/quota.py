@@ -4,6 +4,7 @@ import shutil
 from pathlib import Path
 
 from bot.config import settings
+from bot.db.db import User, _SessionMaker
 from bot.db.repo import reset_quota_if_needed
 from bot.utils.format import bytes_human
 
@@ -31,6 +32,12 @@ def disk_used_bytes() -> int:
 
 async def assert_can_accept(user_id: int, file_size: int) -> None:
     """Raise QuotaError if accepting a file of this size is unsafe."""
+
+    # 0. Ban gate: defense in depth in case the handler check was bypassed.
+    async with _SessionMaker() as s:
+        u = await s.get(User, user_id)
+        if u is not None and u.is_banned:
+            raise QuotaError("You are banned from using this bot.")
 
     # 1. Headroom on disk: need ~2.0x the file size — once for the original on
     #    disk plus the part files we'll write before each upload+delete.

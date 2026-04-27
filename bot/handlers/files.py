@@ -55,7 +55,12 @@ def _file_meta(m: Message) -> tuple[str, int] | None:
     if m.photo:
         return f"photo-{m.id}.jpg", m.photo.file_size or 0
     if m.sticker:
-        ext = "webp" if not m.sticker.is_animated else "tgs"
+        if m.sticker.is_animated:
+            ext = "tgs"
+        elif getattr(m.sticker, "is_video", False):
+            ext = "webm"
+        else:
+            ext = "webp"
         return f"sticker-{m.id}.{ext}", m.sticker.file_size or 0
     return None
 
@@ -95,7 +100,10 @@ def register(app: Client) -> None:
         u = m.from_user
         if not u:
             return
-        await get_or_create_user(u.id, u.username, u.first_name)
+        user = await get_or_create_user(u.id, u.username, u.first_name)
+        if user.is_banned:
+            await m.reply_text("🚫 You are banned from using this bot.")
+            return
 
         meta = _file_meta(m)
         if meta is None:
