@@ -204,7 +204,9 @@ def register(app: Client) -> None:
         except ValueError:
             await m.reply_text("user_id must be a number.")
             return
-        cmd = parts[0].lstrip("/").lower()
+        # Strip the optional `@botname` suffix Telegram appends in groups
+        # so `/grant@mybot` and `/grant` are treated the same.
+        cmd = parts[0].lstrip("/").split("@", 1)[0].lower()
         ok = await set_vip(uid, cmd == "grant")
         if not ok:
             await m.reply_text(
