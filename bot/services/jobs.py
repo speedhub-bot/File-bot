@@ -104,7 +104,7 @@ class JobManager:
                 req.chat_id,
                 "⏳ *Bot is busy with another user.*\n"
                 "I've queued your job — you'll start automatically when the "
-                "current one finishes. Send /cancel if you'd rather not wait.",
+                "current one finishes.",
             )
 
         gate = self._user_lock if not privileged else _NullCM()
