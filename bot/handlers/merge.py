@@ -42,6 +42,9 @@ def _ensure_session(user_id: int) -> dict:
         sess = {
             "dir": d,
             "parts": {},
+            "sizes": {},  # idx -> last-recorded size, used to undo the
+                          # previous contribution to total_size when a user
+                          # re-sends a part with the same index.
             "output_name": None,
             "started_at": time.time(),
             "total_size": 0,
@@ -197,26 +200,31 @@ def register(app: Client) -> None:
         target = sess["dir"] / _safe_filename(
             m.document.file_name, f"part-{idx}.bin"
         )
+        old = sess["parts"].get(idx)
+
+        # Roll back the previous contribution for this index *before* the
+        # download starts. We use the cached size in sess["sizes"] because if
+        # the new file lands at the same path the on-disk file gets
+        # overwritten and the original size is no longer recoverable via stat.
+        if old is not None:
+            sess["total_size"] -= sess["sizes"].get(idx, 0)
+            # Only unlink the old file when it lives at a *different* path
+            # than the incoming target — otherwise the about-to-be-downloaded
+            # replacement would be deleted along with it.
+            if old != target:
+                try:
+                    old.unlink(missing_ok=True)
+                except OSError:
+                    pass
+
         notice = await m.reply_text(f"⬇️  Receiving part #{idx} ({bytes_human(size)})…")
         try:
             await client.download_media(message=m, file_name=str(target))
         except Exception as e:  # noqa: BLE001
             await notice.edit_text(f"❌ Failed: `{e}`")
             return
-        # If the user re-sends a part with the same index, drop the old file
-        # on disk and adjust total_size so quota / progress numbers stay
-        # accurate.
-        old = sess["parts"].get(idx)
-        if old is not None:
-            try:
-                sess["total_size"] -= old.stat().st_size
-            except OSError:
-                pass
-            try:
-                old.unlink(missing_ok=True)
-            except OSError:
-                pass
         sess["parts"][idx] = target
+        sess["sizes"][idx] = size
         sess["total_size"] += size
         await notice.edit_text(
             f"✅ Got part #{idx}. Total received: `{len(sess['parts'])}` "
