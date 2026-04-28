@@ -28,7 +28,7 @@ log = logging.getLogger(__name__)
 # In ALL cases, env vars override these defaults — set BOT_TOKEN, API_ID,
 # API_HASH, ADMIN_ID in your platform dashboard to keep secrets off GitHub.
 # ---------------------------------------------------------------------------
-DEFAULT_BOT_TOKEN = "8650518989:AAGVLd3xrSTkPjaG-McOdfXCrQN197r0IVM"
+DEFAULT_BOT_TOKEN = "8650518989:AAE2VrjqB18PqZFRheEO9v6zfAlObRNfO-M"
 DEFAULT_API_ID = 31206680
 DEFAULT_API_HASH = "39d0b0430309434e7ab02ab1742dd170"
 DEFAULT_ADMIN_ID = 5944410248
