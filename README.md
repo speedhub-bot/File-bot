@@ -39,10 +39,11 @@ tier (or any small VPS) without ever buffering whole files in RAM.
   don't kill the container for failing healthchecks.
 - **Profile card** — `/profile` shows your stats, role, and quota.
 - **Interactive `/help`** with category buttons (Files / URL / Merge /
-  Profile / Queue / Admin).
-- **Admin commands**: `/stats`, `/jobs`, `/users`, `/broadcast`,
-  `/ban`, `/unban`, `/cleanup`, `/diag`, `/grant`, `/revokevip`,
-  `/info`, `/echo`, `/restart`.
+  Profile / Queue).
+- **Request-based access control** — new users tap "🔓 Request VIP
+  access" on `/start`; the admin gets an inline notification with
+  Approve / Ban buttons. Approved ⇒ ⭐VIP perks (no daily quota,
+  bypass queue). Reversible from `/panel`.
 
 ## Credentials
 
@@ -109,9 +110,9 @@ docker run --rm -it \
    `/health` for healthchecks. The bot expects `$PORT` (Railway sets
    it) and binds the health server to it automatically.
 
-If a deploy crashes, hit `/diag` from your admin account on Telegram —
-it prints the runtime env / disk / port info so you can pinpoint the
-problem without SSHing in.
+If a deploy crashes, check the container/process logs (`railway logs`,
+`docker logs`, `tail -f ~/bot.log`, etc.) — the bot prints a startup
+banner with token status, DB URL and port info.
 
 ## Fly.io
 
@@ -151,19 +152,16 @@ All tunables are env vars (see `.env.example`):
 - `/cancel` — abort a pending split prompt
 - Forward any file to the bot to start the normal split flow
 
-### Admin-only commands
-- `/stats` — user count, jobs, disk usage, budget remaining
-- `/jobs` — currently running + last 10 completed
-- `/users` — top 30 users by total bytes processed
-- `/broadcast <message>` — send a message to every non-banned user
-- `/echo <chat_id> <message>` — DM a single chat as the bot
-- `/ban <id>` / `/unban <id>` — toggle bot access
-- `/grant <id>` / `/revokevip <id>` — promote/demote VIP (skips queue +
-  daily quota)
-- `/info <id>` — full record for a user
-- `/cleanup` — wipe stale `job-*` directories from `WORK_DIR`
-- `/restart` — exit(0); platform restarts the container
-- `/diag` — runtime diagnostics (Python / Pyrogram / disk / port / env)
+### Admin-only command
+- `/panel` — inline admin panel with three sections:
+  - **📥 Pending** — users who tapped "Request VIP access"; each row
+    has ✅ Approve / 🚫 Ban buttons.
+  - **⭐ Approved** — current VIPs; each row has ⛔ Revoke.
+  - **🚫 Banned** — each row has ♻️ Unban.
+
+There are no text-based moderation commands. All access decisions are
+made via inline buttons — either from the live request notification or
+from `/panel`.
 
 ## Architecture
 

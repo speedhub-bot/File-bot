@@ -95,6 +95,60 @@ async def all_user_ids() -> list[int]:
         return [r[0] for r in res.all()]
 
 
+async def record_access_request(user_id: int) -> bool:
+    """Mark `requested_at = now` so the user shows up under pending. No-op if
+    the user is already VIP/banned (those states already encode a final
+    decision). Returns whether the row was actually changed."""
+    async with _SessionMaker() as s:
+        u = await s.get(User, user_id)
+        if u is None or u.is_vip or u.is_banned or u.requested_at is not None:
+            return False
+        u.requested_at = datetime.utcnow()
+        await s.commit()
+        return True
+
+
+async def clear_request(user_id: int) -> None:
+    """Drop the pending marker (called after approve/ban/deny)."""
+    async with _SessionMaker() as s:
+        await s.execute(
+            update(User).where(User.user_id == user_id).values(requested_at=None)
+        )
+        await s.commit()
+
+
+async def list_pending_requests(limit: int = 50) -> Sequence[User]:
+    """Users who tapped 'Request access' but haven't been approved or banned."""
+    async with _SessionMaker() as s:
+        res = await s.execute(
+            select(User)
+            .where(
+                User.requested_at.is_not(None),
+                User.is_vip.is_(False),
+                User.is_banned.is_(False),
+            )
+            .order_by(User.requested_at.asc())
+            .limit(limit)
+        )
+        return res.scalars().all()
+
+
+async def list_approved(limit: int = 50) -> Sequence[User]:
+    async with _SessionMaker() as s:
+        res = await s.execute(
+            select(User).where(User.is_vip.is_(True)).order_by(desc(User.user_id)).limit(limit)
+        )
+        return res.scalars().all()
+
+
+async def list_banned(limit: int = 50) -> Sequence[User]:
+    async with _SessionMaker() as s:
+        res = await s.execute(
+            select(User).where(User.is_banned.is_(True)).order_by(desc(User.user_id)).limit(limit)
+        )
+        return res.scalars().all()
+
+
 async def insert_job(user_id: int, file_name: str, size_bytes: int) -> int:
     async with _SessionMaker() as s:
         j = Job(user_id=user_id, file_name=file_name, size_bytes=size_bytes)
