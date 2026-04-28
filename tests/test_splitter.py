@@ -67,105 +67,6 @@ def test_safe_filename_strips_path_traversal() -> None:
     assert _safe_filename("foo\x00.txt", "fb") == "foo_.txt"
 
 
-def test_merge_extract_index() -> None:
-    from bot.handlers.merge import _extract_index
-
-    assert _extract_index("movie.part-03.mkv") == 3
-    assert _extract_index("movie.part-007.bin") == 7
-    # Legacy names from earlier versions.
-    assert _extract_index("movie.part-03-of-12.mkv") == 3
-    # Files without the part suffix shouldn't match.
-    assert _extract_index("notes.txt") is None
-    assert _extract_index("backup.tar.gz") is None
-
-
-def _simulate_collect(sess: dict, idx: int, filename: str, size: int,
-                      *, fail: bool = False) -> None:
-    """Mirror of bot/handlers/merge.py::collect_part dedup + bookkeeping
-    so we can exercise both success and failure paths in unit tests."""
-    target = sess["dir"] / filename
-    prev_path = sess["parts"].get(idx)
-    prev_size = sess["sizes"].get(idx, 0)
-
-    if fail:
-        # Simulate a partial download corrupting the same-path file.
-        if prev_path == target and target.exists():
-            target.write_bytes(b"\x00" * 1)  # corrupted partial
-        if prev_path is not None and prev_path == target:
-            sess["parts"].pop(idx, None)
-            sess["sizes"].pop(idx, None)
-            sess["total_size"] -= prev_size
-        return
-
-    # Successful download: write the new bytes (overwriting if same path).
-    target.write_bytes(b"x" * size)
-
-    if prev_path is not None:
-        sess["total_size"] -= prev_size
-        if prev_path != target:
-            prev_path.unlink(missing_ok=True)
-    sess["parts"][idx] = target
-    sess["sizes"][idx] = size
-    sess["total_size"] += size
-
-
-def test_merge_dedup_same_filename_does_not_self_destruct(tmp_path) -> None:
-    sess = {"parts": {}, "sizes": {}, "total_size": 0, "dir": tmp_path}
-    idx = 3
-
-    _simulate_collect(sess, idx, "movie.part-03.mkv", 100)
-    assert sess["total_size"] == 100
-    assert sess["parts"][idx].stat().st_size == 100
-
-    # Re-send same filename: file must survive the dedup and total_size must
-    # reflect only the new size, not new + old.
-    _simulate_collect(sess, idx, "movie.part-03.mkv", 250)
-    assert sess["total_size"] == 250
-    assert sess["parts"][idx].stat().st_size == 250
-
-    # Re-send different filename for same idx: orphan must be removed.
-    _simulate_collect(sess, idx, "movie.part-3.mkv", 80)
-    assert sess["total_size"] == 80
-    assert sess["parts"][idx].name == "movie.part-3.mkv"
-    assert not (tmp_path / "movie.part-03.mkv").exists()
-
-
-def test_merge_failed_resend_does_not_corrupt_session(tmp_path) -> None:
-    """If download_media raises while replacing a part:
-       * same-path failure → entry must be dropped (file is partially clobbered)
-       * different-path failure → entry must be unchanged (old part still usable)
-    """
-    sess = {"parts": {}, "sizes": {}, "total_size": 0, "dir": tmp_path}
-    idx = 3
-
-    _simulate_collect(sess, idx, "movie.part-03.mkv", 100)
-    snapshot = (sess["parts"][idx], sess["sizes"][idx], sess["total_size"])
-
-    # Different-path failure → session untouched.
-    _simulate_collect(sess, idx, "movie.part-3.mkv", 999, fail=True)
-    assert (sess["parts"][idx], sess["sizes"][idx], sess["total_size"]) == snapshot, \
-        "different-path failure must not mutate session state"
-
-    # Same-path failure → entry must be dropped, total_size rolled back.
-    _simulate_collect(sess, idx, "movie.part-03.mkv", 999, fail=True)
-    assert idx not in sess["parts"], "same-path failure must drop the entry"
-    assert idx not in sess["sizes"]
-    assert sess["total_size"] == 0
-
-
-def test_merge_gap_warned_only_blocks_first_call() -> None:
-    """First /merge done with gaps warns; the second call must proceed
-    rather than re-blocking the user."""
-    sess = {"parts": {1: "a", 3: "c"}, "gap_warned": False}
-    indices = sorted(sess["parts"].keys())
-    gaps = [i for i in range(indices[0], indices[-1] + 1) if i not in sess["parts"]]
-    assert gaps == [2]
-    blocked_first = bool(gaps) and not sess.get("gap_warned")
-    if blocked_first:
-        sess["gap_warned"] = True
-    assert blocked_first is True
-    blocked_second = bool(gaps) and not sess.get("gap_warned")
-    assert blocked_second is False
 
 
 def test_is_privileged_admin_and_vip(monkeypatch) -> None:
@@ -203,16 +104,6 @@ def test_jobmanager_user_busy_starts_false() -> None:
     asyncio.run(_check())
 
 
-def test_url_filename_extraction() -> None:
-    from bot.handlers.url import _filename_from_url
-
-    assert _filename_from_url("https://example.com/path/file.zip", 1) == "file.zip"
-    # URL-encoded spaces should round-trip and be sanitized.
-    assert _filename_from_url("https://example.com/My%20Doc.pdf", 1) == "My Doc.pdf"
-    # No path → fallback.
-    assert _filename_from_url("https://example.com", 42) == "download-42.bin"
-    # Path traversal in URL paths still gets stripped.
-    assert _filename_from_url("https://x/../../etc/passwd", 1) == "passwd"
 
 
 def test_quota_blocks_banned_users() -> None:
@@ -356,8 +247,7 @@ def test_handler_messages_have_no_unmatched_single_markers() -> None:
         repo / "bot" / "handlers" / "admin.py",
         repo / "bot" / "handlers" / "files.py",
         repo / "bot" / "handlers" / "splits.py",
-        repo / "bot" / "handlers" / "url.py",
-        repo / "bot" / "handlers" / "merge.py",
+        repo / "bot" / "handlers" / "cookies.py",
         repo / "bot" / "services" / "jobs.py",
     ]
     # Match `*X*` where X has no asterisks, the marker isn't doubled, and

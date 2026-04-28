@@ -48,8 +48,7 @@ def _welcome(name: str | None) -> str:
 HELP_HOME = (
     "**📖 Help — pick a topic**\n\n"
     "• **Files** — forward a file, choose how to split it.\n"
-    "• **URL ingest** — `/url <link>` to pull from the web.\n"
-    "• **Merge** — re-join parts back into the original file.\n"
+    "• **Log to Cookies** — extract cookies from logs smartly.\n"
     "• **Profile** — your stats, quota and VIP status.\n"
     "• **Queue** — how concurrency and ⭐VIP perks work.\n\n"
     f"{CREDIT_LINE}"
@@ -71,26 +70,14 @@ HELP_FILES = (
     "on Railway's 1 GB free volume."
 )
 
-HELP_URL = (
-    "**🌐 URL ingest**\n\n"
-    "Use `/url <https-link>` to make me pull a file directly off the web "
-    "without you having to download it first.\n\n"
-    "I do a HEAD probe before fetching so I can quota-check up front. "
-    "Servers that send chunked transfers without a `Content-Length` header "
-    "are still supported — I just skip the up-front size check.\n\n"
-    "After download you'll get the same split-mode picker as forwarded files."
-)
-
-HELP_MERGE = (
-    "**🧷 Merge — rebuild the original file**\n\n"
+HELP_COOKIES = (
+    "**🍪 Log to Cookies**\n\n"
+    "Extract cookies from log files or archives (.zip, .rar, .7z) smartly.\n\n"
     "Workflow:\n"
-    "1. `/merge start` — opens a session.\n"
-    "2. Forward me the parts (`*.part-NN.ext`) in any order; I'll match them "
-    "by index.\n"
-    "3. `/merge status` — shows what I've got so far.\n"
-    "4. `/merge done <output-name>` — joins everything and sends it back.\n\n"
-    "If parts are missing I'll warn once. Run `/merge done` again and I'll "
-    "merge what's there. `/merge cancel` aborts."
+    "1. Tap **🍪 Log to Cookies** on the start menu.\n"
+    "2. Send/Forward your log file or archive.\n"
+    "3. Reply with the domain you want to extract cookies for (e.g. `google.com`).\n"
+    "4. I'll process all files, extract matching cookies, and send them back to you in a ZIP file, organized by source."
 )
 
 HELP_PROFILE = (
@@ -117,8 +104,7 @@ HELP_QUEUE = (
 _HELP_PAGES = {
     "home": HELP_HOME,
     "files": HELP_FILES,
-    "url": HELP_URL,
-    "merge": HELP_MERGE,
+    "cookies": HELP_COOKIES,
     "profile": HELP_PROFILE,
     "queue": HELP_QUEUE,
 }
@@ -128,8 +114,7 @@ def _help_kb(current: str = "home") -> InlineKeyboardMarkup:
     rows = [
         [
             InlineKeyboardButton("📁 Files", callback_data="help:files"),
-            InlineKeyboardButton("🌐 URL", callback_data="help:url"),
-            InlineKeyboardButton("🧷 Merge", callback_data="help:merge"),
+            InlineKeyboardButton("🍪 Cookies", callback_data="help:cookies"),
         ],
         [
             InlineKeyboardButton("👤 Profile", callback_data="help:profile"),
@@ -145,6 +130,9 @@ async def _start_kb_for(user_id: int) -> InlineKeyboardMarkup:
     """Welcome keyboard. Adds '🔓 Request VIP access' for users who aren't
     already approved/banned/admin and haven't asked yet."""
     rows = [
+        [
+            InlineKeyboardButton("🍪 Log to Cookies", callback_data="cookies:start"),
+        ],
         [
             InlineKeyboardButton("📖 Help", callback_data="help:home"),
             InlineKeyboardButton("👤 Profile", callback_data="profile:me"),
