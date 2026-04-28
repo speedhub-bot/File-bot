@@ -39,6 +39,7 @@ from bot.config import settings
 from bot.db.repo import (
     clear_request,
     get_or_create_user,
+    get_user,
     list_approved,
     list_banned,
     list_pending_requests,
@@ -206,10 +207,20 @@ def register(app: Client) -> None:
         # False in that case — bail out cleanly instead of sending the admin
         # a phantom notification for a request the DB never accepted.
         if not await record_access_request(u.id):
-            await q.answer(
-                "Request already pending — please wait for admin review.",
-                show_alert=True,
-            )
+            # Re-fetch so the user gets an accurate message even when the
+            # write was rejected because they were just approved/banned.
+            fresh = await get_user(u.id)
+            if fresh and fresh.is_banned:
+                await q.answer("You are banned.", show_alert=True)
+            elif fresh and fresh.is_vip:
+                await q.answer(
+                    "You're already approved as ⭐VIP.", show_alert=True
+                )
+            else:
+                await q.answer(
+                    "Request already pending — please wait for admin review.",
+                    show_alert=True,
+                )
             return
         tag = _user_tag(u.username, u.first_name, u.id)
         try:
