@@ -9,23 +9,22 @@ from pathlib import Path
 from pyrogram import Client, filters
 from pyrogram.types import (
     CallbackQuery,
-    ForceReply,
-    Message,
     InlineKeyboardButton,
     InlineKeyboardMarkup,
+    Message,
 )
 
 from bot.config import settings
-from bot.db.repo import get_or_create_user, add_quota_used
+from bot.db.repo import add_quota_used
 from bot.services.cookies import run_extraction
-from bot.services.quota import assert_can_accept, QuotaError
+from bot.services.quota import QuotaError, assert_can_accept
 from bot.utils.format import bytes_human
 
 log = logging.getLogger(__name__)
 
-# user_id -> {"file_msg_id": int, "file_name": str, "file_size": int, "prompt_msg_id": int}
+# user_id -> {"prompt_msg_id": int}
 AWAITING_FILE: dict[int, dict] = {}
-# user_id -> {"temp_dir": Path, "file_path": Path, "prompt_msg_id": int}
+# user_id -> {"temp_dir": Path, "file_path": Path, "prompt_msg_id": int, "progress_msg_id": int}
 AWAITING_DOMAIN: dict[int, dict] = {}
 
 def register(app: Client) -> None:
@@ -107,23 +106,24 @@ def register(app: Client) -> None:
             if not file_path:
                 raise RuntimeError("Download failed")
 
-            AWAITING_FILE.pop(u.id)
-            m.stop_propagation()  # Stop other handlers
+            AWAITING_FILE.pop(u.id, None)
+            m.stop_propagation()  # Stop other handlers from seeing this file
             prompt = await m.reply_text(
-                "✅ Logs received.\n\nNow, reply with the **domain** you want to extract cookies for (e.g., `spotify.com`).",
-                reply_markup=ForceReply(selective=True),
-                quote=True
+                "✅ Logs received.\n\nNow send me the **domain** you want to extract cookies for (e.g., `spotify.com`).",
+                quote=True,
             )
             AWAITING_DOMAIN[u.id] = {
                 "temp_dir": temp_dir,
                 "file_path": Path(file_path),
                 "prompt_msg_id": prompt.id,
-                "progress_msg_id": progress_msg.id
+                "progress_msg_id": progress_msg.id,
             }
         except Exception as e:
             log.exception("Failed to handle log file")
+            AWAITING_FILE.pop(u.id, None)
             await progress_msg.edit_text(f"❌ Failed to download file: `{e}`")
             shutil.rmtree(temp_dir, ignore_errors=True)
+            m.stop_propagation()  # Don't let the file fall through to the split handler
 
     @app.on_message(filters.private & filters.text & ~filters.command(["start", "help", "cancel"]), group=-1)
     async def on_domain_reply(client: Client, m: Message) -> None:
@@ -131,16 +131,15 @@ def register(app: Client) -> None:
         if not u or u.id not in AWAITING_DOMAIN:
             return
 
-        state = AWAITING_DOMAIN[u.id]
-        if not m.reply_to_message or m.reply_to_message.id != state["prompt_msg_id"]:
-            return
-
         domain = m.text.strip().lower()
         if "." not in domain:
-            await m.reply_text("❌ Invalid domain. Please enter a valid domain like `youtube.com`.", reply_markup=ForceReply(selective=True))
+            await m.reply_text(
+                "❌ Invalid domain. Please send a valid domain like `youtube.com`.",
+            )
+            m.stop_propagation()
             return
 
-        AWAITING_DOMAIN.pop(u.id)
+        state = AWAITING_DOMAIN.pop(u.id)
         m.stop_propagation()  # Stop other handlers
 
         progress_msg_id = state["progress_msg_id"]
