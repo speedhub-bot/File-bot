@@ -38,16 +38,22 @@ def register(app: Client) -> None:
             return
         s = await stats()
         used = disk_used_bytes()
-        budget_left = max(0, settings.disk_budget_bytes - used)
+        if settings.disk_budget_bytes > 0:
+            budget_left = max(0, settings.disk_budget_bytes - used)
+            budget_line = (
+                f"Disk budget left: `{bytes_human(budget_left)}` of "
+                f"`{bytes_human(settings.disk_budget_bytes)}`\n"
+            )
+        else:
+            budget_line = "Disk budget: `unlimited` (capped only by free space)\n"
         await m.reply_text(
-            "*📊 Bot stats*\n"
+            "**📊 Bot stats**\n"
             f"Users: `{s['users']}`\n"
             f"Total jobs: `{s['jobs']}`\n"
             f"Active jobs: `{s['active']}` (cap `{settings.max_concurrent_jobs}`)\n"
             f"Total bytes processed: `{bytes_human(s['bytes'])}`\n"
             f"Disk in use (work_dir): `{bytes_human(used)}`\n"
-            f"Disk budget left: `{bytes_human(budget_left)}` of "
-            f"`{bytes_human(settings.disk_budget_bytes)}`\n"
+            f"{budget_line}"
             f"Filesystem free: `{bytes_human(free_disk_bytes())}`"
         )
 
@@ -57,16 +63,16 @@ def register(app: Client) -> None:
             return
         active = jobs.active_jobs
         recent = await list_recent_jobs(limit=10)
-        lines = ["*🛠 Jobs*", "", "*Active:*"]
+        lines = ["**🛠 Jobs**", "", "**Active:**"]
         if not active:
-            lines.append("_(none)_")
+            lines.append("__(none)__")
         else:
             for j in active:
                 lines.append(
                     f"• #{j.job_db_id} `{j.file_name}` "
                     f"({bytes_human(j.file_size)}) mode=`{j.mode}` user=`{j.user_id}`"
                 )
-        lines += ["", "*Recent:*"]
+        lines += ["", "**Recent:**"]
         for r in recent:
             lines.append(
                 f"• #{r.id} `{r.file_name}` ({bytes_human(r.size_bytes)}) "
@@ -82,7 +88,7 @@ def register(app: Client) -> None:
         if not rows:
             await m.reply_text("No users yet.")
             return
-        lines = ["*👥 Top users*"]
+        lines = ["**👥 Top users**"]
         for u in rows:
             tag = f"@{u.username}" if u.username else "(no username)"
             banned = " 🚫" if u.is_banned else ""
@@ -105,7 +111,7 @@ def register(app: Client) -> None:
         if text.startswith("--raw "):
             text = text[len("--raw "):].strip()
         else:
-            text = f"{text}\n\n— _broadcast via_ @akaza\\_inst"
+            text = f"{text}\n\n— __broadcast via__ [@akaza_isnt](https://t.me/akaza_isnt)"
         ids = await all_user_ids()
         sent = 0
         failed = 0
@@ -154,7 +160,7 @@ def register(app: Client) -> None:
                      "FLY_APP_NAME", "KOYEB_APP_NAME"}
         )
         await m.reply_text(
-            "*🩺 Diagnostics*\n"
+            "**🩺 Diagnostics**\n"
             f"Python: `{sys.version.split()[0]}`\n"
             f"Platform: `{platform.platform()}`\n"
             f"Pyrogram: `{pyro_ver}`\n"
@@ -164,8 +170,8 @@ def register(app: Client) -> None:
             f"(exists=`{settings.work_dir.exists()}`)\n"
             f"DB: `{settings.database_url}`\n"
             f"Health port: `{settings.port}`\n"
-            f"Disk used: `{bytes_human(disk_used_bytes())}` / "
-            f"`{bytes_human(settings.disk_budget_bytes)}` budget\n"
+            f"Disk used: `{bytes_human(disk_used_bytes())}` / budget=`"
+            f"{bytes_human(settings.disk_budget_bytes) if settings.disk_budget_bytes else 'unlimited'}`\n"
             f"FS free: `{bytes_human(free_disk_bytes())}`\n"
             f"Concurrency cap: `{settings.max_concurrent_jobs}` / "
             f"active=`{jobs.active_count}`\n"
@@ -243,14 +249,14 @@ def register(app: Client) -> None:
             flags.append("🚫 banned")
         flag_line = " · ".join(flags) if flags else "👤 user"
         await m.reply_text(
-            f"*ℹ️ User `{uid}`*\n"
+            f"**ℹ️ User `{uid}`**\n"
             f"Name: `{u.first_name or '?'}` {tag}\n"
             f"Flags: {flag_line}\n"
             f"Member since: `{u.created_at:%Y-%m-%d %H:%M UTC}`\n"
             f"Total jobs: `{u.total_jobs}`\n"
             f"Total bytes: `{bytes_human(u.total_bytes)}`\n"
             f"Today: `{bytes_human(u.daily_used_bytes)}` / "
-            f"`{bytes_human(settings.per_user_daily_bytes)}` "
+            f"`{bytes_human(settings.per_user_daily_bytes) if settings.per_user_daily_bytes else 'unlimited'}` "
             f"(reset `{u.daily_reset_at:%Y-%m-%d %H:%M UTC}`)"
         )
 

@@ -1,6 +1,6 @@
 # File Bot
 
-_Bot by [@akaza_inst](https://t.me/akaza_inst)._
+_Bot by [@akaza_isnt](https://t.me/akaza_isnt)._
 
 A streaming Telegram **file-splitter / re-uploader / merger** built with
 [Pyrogram] (MTProto), so it bypasses the 20 MB Bot HTTP API ceiling and can
@@ -22,10 +22,12 @@ tier (or any small VPS) without ever buffering whole files in RAM.
   / `.log` / `.sql` etc. are split on the nearest line boundary (with
   fallback to whitespace) so no sentence is cut mid-word. Binary files
   split at exact byte offsets.
-- **Disk budget enforcement** — refuses jobs that would exceed the
-  configured cap (default 900 MB, fits Railway's 1 GB volume).
-- **Per-user daily quota** (default 10 GB / day, configurable; `0` =
-  unlimited).
+- **Elastic disk budget** — refuses jobs that would fill the volume.
+  Default is `0` (no explicit cap, just respects free space minus
+  ~512 MB of slack); set `DISK_BUDGET_BYTES` to a fixed number for
+  Railway/Fly free tiers.
+- **Per-user daily quota** (default `0` = unlimited; set
+  `PER_USER_DAILY_BYTES` to e.g. `10737418240` for a 10 GB/day cap).
 - **Single-user queue** — only one non-VIP job runs at a time so users
   don't crash each other on the 1 GB volume; queued users get a clear
   "please wait" notice. **Admin and VIPs bypass the queue.**
@@ -129,8 +131,8 @@ All tunables are env vars (see `.env.example`):
 
 | Var | Default | Meaning |
 | --- | --- | --- |
-| `DISK_BUDGET_BYTES` | `943718400` (~900 MB) | Hard cap on the working dir |
-| `PER_USER_DAILY_BYTES` | `10737418240` (~10 GB) | Per-user daily cap; `0` = unlimited |
+| `DISK_BUDGET_BYTES` | `0` (unlimited — just leaves ~512 MB free) | Hard cap on the working dir; set to e.g. `943718400` (~900 MB) for Railway free |
+| `PER_USER_DAILY_BYTES` | `0` (unlimited) | Per-user daily cap; set to e.g. `10737418240` (~10 GB) to enforce |
 | `DEFAULT_AUTO_PART_BYTES` | `52428800` (50 MB) | Target part size for "🤖 Auto" |
 | `MAX_PART_BYTES` | `2093796556` (~1.95 GB) | Telegram per-document cap |
 | `MAX_CONCURRENT_JOBS` | `2` | Global concurrency cap |

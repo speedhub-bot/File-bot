@@ -46,8 +46,13 @@ class Settings(BaseSettings):
     admin_id: int = Field(default=DEFAULT_ADMIN_ID, alias="ADMIN_ID")
 
     work_dir: Path = Field(default=Path("./work"), alias="WORK_DIR")
-    disk_budget_bytes: int = Field(default=943_718_400, alias="DISK_BUDGET_BYTES")
-    per_user_daily_bytes: int = Field(default=10_737_418_240, alias="PER_USER_DAILY_BYTES")
+    # Disk cap that the quota check enforces. `0` means "no explicit cap" —
+    # the headroom check then falls back to whatever the underlying volume
+    # actually has free (`shutil.disk_usage`). Useful when the bot runs on
+    # a fat box (TBs of disk) where the old 900 MB Railway-shaped default
+    # was the bottleneck.
+    disk_budget_bytes: int = Field(default=0, alias="DISK_BUDGET_BYTES")
+    per_user_daily_bytes: int = Field(default=0, alias="PER_USER_DAILY_BYTES")
 
     # HTTP health endpoint — Railway / Fly / Koyeb expect *something* bound
     # to $PORT, otherwise they consider the deploy unhealthy and kill it.

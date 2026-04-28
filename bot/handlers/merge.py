@@ -80,7 +80,7 @@ def register(app: Client) -> None:
             _drop_session(u.id)
             sess = _ensure_session(u.id)
             await m.reply_text(
-                "🧷 *Merge mode armed.*\n\n"
+                "🧷 **Merge mode armed.**\n\n"
                 "Forward me the parts (`*.part-NN.ext`) one by one. I'll figure "
                 "out the order from filenames. When you're done, send "
                 "`/merge done <output-filename>` and I'll join + send it back.\n\n"
@@ -101,7 +101,7 @@ def register(app: Client) -> None:
                 return
             indices = sorted(sess["parts"].keys())
             await m.reply_text(
-                "*Merge session*\n"
+                "**Merge session**\n"
                 f"Parts received: `{len(indices)}`\n"
                 f"Indices: `{indices}`\n"
                 f"Total bytes: `{bytes_human(sess['total_size'])}`"
@@ -138,7 +138,7 @@ def register(app: Client) -> None:
                 return
 
             target = sess["dir"] / output_name
-            progress = await m.reply_text("🪡 *Merging…*")
+            progress = await m.reply_text("🪡 **Merging…**")
             written = 0
             try:
                 with target.open("wb") as out:
@@ -153,25 +153,25 @@ def register(app: Client) -> None:
                         try:
                             await client.edit_message_text(
                                 m.chat.id, progress.id,
-                                f"🪡 *Merging*\n`{progress_bar(written, sess['total_size'])}`\n"
+                                f"🪡 **Merging**\n`{progress_bar(written, sess['total_size'])}`\n"
                                 f"{bytes_human(written)} / {bytes_human(sess['total_size'])}"
                             )
                         except Exception:  # noqa: BLE001
                             pass
-                await client.edit_message_text(m.chat.id, progress.id, "📤 *Uploading merged file…*")
+                await client.edit_message_text(m.chat.id, progress.id, "📤 **Uploading merged file…**")
                 await client.send_document(
                     m.chat.id,
                     document=str(target),
                     caption=f"`{output_name}` ({bytes_human(written)})",
                 )
-                await client.edit_message_text(m.chat.id, progress.id, "✅ *Done.*")
+                await client.edit_message_text(m.chat.id, progress.id, "✅ **Done.**")
             finally:
                 _drop_session(u.id)
             return
 
         # Default — show help.
         await m.reply_text(
-            "*🧷 Merge command*\n"
+            "**🧷 Merge command**\n"
             "`/merge start` — begin collecting parts\n"
             "`/merge status` — show what's been collected\n"
             "`/merge done <output-name>` — join everything and send it back\n"
