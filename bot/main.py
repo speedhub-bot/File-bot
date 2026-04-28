@@ -86,7 +86,7 @@ async def _amain() -> None:
     # Imports kept inline so the friendly settings error above can fire even
     # if a downstream module has its own import-time problem.
     from bot.db.db import init_db
-    from bot.handlers import admin, errors, files, merge, splits, start, url
+    from bot.handlers import admin, cookies, errors, files, splits, start
     from bot.services.health import start_health_server
 
     await init_db()
@@ -94,7 +94,7 @@ async def _amain() -> None:
     health_runner = await start_health_server()
 
     app = _build_client(settings)
-    for mod in (start, files, splits, admin, errors, url, merge):
+    for mod in (start, files, splits, admin, errors, cookies):
         mod.register(app)
 
     log.info("Starting File Bot…")
