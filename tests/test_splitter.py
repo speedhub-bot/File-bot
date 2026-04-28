@@ -431,3 +431,58 @@ def test_health_ready_ok_with_unlimited_disk_budget(monkeypatch) -> None:
         assert resp.status == 200, f"expected 200 OK, got {resp.status}"
 
     asyncio.run(_run())
+
+
+def test_access_request_lifecycle(monkeypatch) -> None:
+    """End-to-end on the repo layer: record_access_request → list_pending →
+    set_vip+clear_request → list_approved → set_banned → list_banned."""
+    import asyncio
+    import tempfile
+    import time
+
+    from bot.config import settings as _settings
+    from bot.db.db import User, _SessionMaker, init_db
+    from bot.db.repo import (
+        clear_request,
+        list_approved,
+        list_banned,
+        list_pending_requests,
+        record_access_request,
+        set_banned,
+        set_vip,
+    )
+
+    uid = int(time.time() * 1000) % (2**31) + 100
+
+    async def _run() -> None:
+        with tempfile.TemporaryDirectory() as d:
+            _settings.work_dir = Path(d)
+            await init_db()
+            async with _SessionMaker() as s:
+                s.add(User(user_id=uid, username="req", first_name="Requester"))
+                await s.commit()
+
+            assert await record_access_request(uid) is True
+            # second call is a no-op (already pending).
+            assert await record_access_request(uid) is False
+
+            pending = await list_pending_requests()
+            assert any(p.user_id == uid for p in pending)
+
+            await set_vip(uid, True)
+            await clear_request(uid)
+            approved = await list_approved()
+            assert any(p.user_id == uid for p in approved)
+            pending2 = await list_pending_requests()
+            assert all(p.user_id != uid for p in pending2)
+
+            # Approved → banned demotes from VIP via the panel flow.
+            await set_vip(uid, False)
+            await set_banned(uid, True)
+            banned = await list_banned()
+            assert any(p.user_id == uid for p in banned)
+
+            # Banned users cannot re-request silently.
+            assert await record_access_request(uid) is False
+
+    asyncio.run(_run())

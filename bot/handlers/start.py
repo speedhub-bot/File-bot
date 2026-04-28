@@ -11,7 +11,8 @@ from pyrogram.types import (
 )
 
 from bot.config import settings
-from bot.db.repo import get_or_create_user, reset_quota_if_needed
+from bot.db.repo import get_or_create_user, get_user, reset_quota_if_needed
+from bot.handlers.admin import _request_button
 from bot.utils.format import bytes_human
 
 # ---------------------------------------------------------------------------
@@ -50,8 +51,7 @@ HELP_HOME = (
     "• **URL ingest** — `/url <link>` to pull from the web.\n"
     "• **Merge** — re-join parts back into the original file.\n"
     "• **Profile** — your stats, quota and VIP status.\n"
-    "• **Queue** — how concurrency works.\n"
-    "• **Admin** — operator-only commands.\n\n"
+    "• **Queue** — how concurrency and ⭐VIP perks work.\n\n"
     f"{CREDIT_LINE}"
 )
 
@@ -98,37 +98,20 @@ HELP_PROFILE = (
     "• /profile — your stats card: jobs run, bytes processed, daily quota "
     "left, member since, and VIP status.\n"
     "• /cancel — drop a pending split prompt.\n\n"
-    "**Quota:** every account has a daily byte allowance. VIPs (and the admin) "
-    "have it disabled — ask the admin to `/grant` you VIP."
+    "**Quota:** every account has a daily byte allowance. ⭐VIPs (and the admin) "
+    "have it disabled. Tap **🔓 Request VIP access** on /start to ask the admin "
+    "to promote you."
 )
 
 HELP_QUEUE = (
     "**🔒 Queue — one user at a time**\n\n"
-    "To keep this bot stable on a 1 GB volume, only **one** non-VIP job runs "
+    "To keep this bot stable on smaller hosts, only **one** non-VIP job runs "
     "at a time. If you forward a file while someone else is converting "
     "you'll get a **⏳ queued** message — I'll start automatically when the "
     "previous job finishes.\n\n"
-    "**Admin and VIPs bypass this gate** and can run jobs in parallel. The "
-    "admin can promote anyone to VIP via `/grant <user_id>`."
-)
-
-HELP_ADMIN = (
-    "**🛠 Admin commands**\n\n"
-    "**Operations**\n"
-    "• /stats — counters, disk usage, budget remaining\n"
-    "• /jobs — active + recent job list\n"
-    "• /users — top users by bytes\n"
-    "• /diag — runtime diagnostics\n"
-    "• /cleanup — purge `work_dir/job-*`\n"
-    "• /restart — exit(0); platform restarts the container\n\n"
-    "**Moderation**\n"
-    "• /ban `<id>` and /unban `<id>`\n"
-    "• /grant `<id>` — promote to VIP (no daily quota, bypasses queue)\n"
-    "• /revokevip `<id>` — demote\n"
-    "• /info `<id>` — full record for a user\n\n"
-    "**Outreach**\n"
-    "• /broadcast `<text>` — DM every non-banned user\n"
-    "• /echo `<chat_id>` `<text>` — DM a single chat as the bot"
+    "**Admin and ⭐VIPs bypass this gate** and can run jobs in parallel. "
+    "Tap **🔓 Request VIP access** on /start to ask the admin to promote "
+    "you."
 )
 
 _HELP_PAGES = {
@@ -138,7 +121,6 @@ _HELP_PAGES = {
     "merge": HELP_MERGE,
     "profile": HELP_PROFILE,
     "queue": HELP_QUEUE,
-    "admin": HELP_ADMIN,
 }
 
 
@@ -152,7 +134,6 @@ def _help_kb(current: str = "home") -> InlineKeyboardMarkup:
         [
             InlineKeyboardButton("👤 Profile", callback_data="help:profile"),
             InlineKeyboardButton("🔒 Queue", callback_data="help:queue"),
-            InlineKeyboardButton("🛠 Admin", callback_data="help:admin"),
         ],
     ]
     if current != "home":
@@ -160,21 +141,35 @@ def _help_kb(current: str = "home") -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(rows)
 
 
-def _start_kb() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
+async def _start_kb_for(user_id: int) -> InlineKeyboardMarkup:
+    """Welcome keyboard. Adds '🔓 Request VIP access' for users who aren't
+    already approved/banned/admin and haven't asked yet."""
+    rows = [
         [
-            [
-                InlineKeyboardButton("📖 Help", callback_data="help:home"),
-                InlineKeyboardButton("👤 Profile", callback_data="profile:me"),
-            ]
+            InlineKeyboardButton("📖 Help", callback_data="help:home"),
+            InlineKeyboardButton("👤 Profile", callback_data="profile:me"),
         ]
-    )
+    ]
+    if user_id != settings.admin_id:
+        u = await get_user(user_id)
+        if u and not u.is_vip and not u.is_banned and u.requested_at is None:
+            rows.append([_request_button()])
+    return InlineKeyboardMarkup(rows)
 
 
 async def _profile_text(user_id: int, display_name: str) -> str:
     u = await reset_quota_if_needed(user_id)
     is_admin = user_id == settings.admin_id
-    role = "👑 Admin" if is_admin else ("⭐ VIP" if u.is_vip else "👤 User")
+    if is_admin:
+        role = "👑 Admin"
+    elif u.is_banned:
+        role = "🚫 Banned"
+    elif u.is_vip:
+        role = "⭐ VIP"
+    elif u.requested_at is not None:
+        role = "⏳ Pending approval"
+    else:
+        role = "👤 User"
     quota_total = settings.per_user_daily_bytes
     if is_admin or u.is_vip:
         quota_line = "Daily quota: **unlimited**"
@@ -208,11 +203,13 @@ def register(app: Client) -> None:
     @app.on_message(filters.command(["start"]) & filters.private)
     async def on_start(_: Client, m: Message) -> None:
         u = m.from_user
+        kb = None
         if u:
             await get_or_create_user(u.id, u.username, u.first_name)
+            kb = await _start_kb_for(u.id)
         await m.reply_text(
             _welcome(u.first_name if u else None),
-            reply_markup=_start_kb(),
+            reply_markup=kb,
             disable_web_page_preview=True,
         )
 

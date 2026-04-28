@@ -26,6 +26,9 @@ class User(Base):
     first_name: Mapped[str | None] = mapped_column(String(128))
     is_banned: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     is_vip: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    # NULL once the user has either been approved or denied. Set to "now"
+    # when the user taps the "Request VIP access" button on /start.
+    requested_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     daily_used_bytes: Mapped[int] = mapped_column(BigInteger, default=0, nullable=False)
     daily_reset_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=datetime.utcnow, nullable=False
@@ -66,6 +69,7 @@ async def init_db() -> None:
         # existing models won't appear unless we ALTER TABLE ourselves.
         await _add_column_if_missing(conn, "users", "is_vip",
                                      "BOOLEAN NOT NULL DEFAULT 0")
+        await _add_column_if_missing(conn, "users", "requested_at", "DATETIME")
 
 
 async def _add_column_if_missing(conn, table: str, column: str, decl: str) -> None:
