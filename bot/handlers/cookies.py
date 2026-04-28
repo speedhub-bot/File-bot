@@ -107,7 +107,6 @@ def register(app: Client) -> None:
                 raise RuntimeError("Download failed")
 
             AWAITING_FILE.pop(u.id, None)
-            m.stop_propagation()  # Stop other handlers from seeing this file
             prompt = await m.reply_text(
                 "✅ Logs received.\n\nNow send me the **domain** you want to extract cookies for (e.g., `spotify.com`).",
                 quote=True,
@@ -123,7 +122,10 @@ def register(app: Client) -> None:
             AWAITING_FILE.pop(u.id, None)
             await progress_msg.edit_text(f"❌ Failed to download file: `{e}`")
             shutil.rmtree(temp_dir, ignore_errors=True)
-            m.stop_propagation()  # Don't let the file fall through to the split handler
+
+        # StopPropagation inherits from Exception, so it must be raised
+        # OUTSIDE the try/except to avoid being swallowed.
+        m.stop_propagation()
 
     @app.on_message(filters.private & filters.text & ~filters.command(["start", "help", "cancel"]), group=-1)
     async def on_domain_reply(client: Client, m: Message) -> None:
