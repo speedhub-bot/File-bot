@@ -220,10 +220,15 @@ def test_quota_blocks_banned_users() -> None:
     depth in case the handler-level ban check is bypassed."""
 
     import tempfile
+    import time
 
     from bot.config import settings as _settings
     from bot.db.db import User, _SessionMaker, init_db
     from bot.services.quota import QuotaError, assert_can_accept
+
+    # Unique per-run id so reruns against the same SQLite file don't
+    # collide on the UNIQUE constraint.
+    uid = int(time.time() * 1000) % (2**31)
 
     async def _run() -> None:
         # Use a temporary work_dir so disk_used_bytes isn't influenced by
@@ -232,11 +237,11 @@ def test_quota_blocks_banned_users() -> None:
             _settings.work_dir = Path(d)
             await init_db()
             async with _SessionMaker() as s:
-                u = User(user_id=99001, username="b", first_name="b", is_banned=True)
+                u = User(user_id=uid, username="b", first_name="b", is_banned=True)
                 s.add(u)
                 await s.commit()
             try:
-                await assert_can_accept(99001, 1024)
+                await assert_can_accept(uid, 1024)
             except QuotaError as e:
                 assert "banned" in str(e).lower()
                 return
@@ -316,3 +321,55 @@ def test_text_split_aligns_on_lines() -> None:
             assert recombined == content
 
     asyncio.run(_run())
+
+
+def test_credit_line_uses_pyrogram_markdown_dialect() -> None:
+    """Pyrogram 2's MARKDOWN parser uses doubled markers (`**bold**`,
+    `__italic__`); single markers are sent literally. Catch any regression
+    where someone re-introduces single-marker formatting in CREDIT_LINE
+    (which is rendered into every /start, /help and /profile message)."""
+    from bot.handlers.start import CREDIT_LINE
+
+    assert "@akaza_isnt" in CREDIT_LINE, "credit handle must be @akaza_isnt"
+    # No backslash escapes leaking into the rendered message.
+    assert "\\_" not in CREDIT_LINE
+    # No single-marker italics. `__Bot by__` is fine; `_Bot by_` would render literal.
+    import re
+
+    # Strip the `[label](url)` link form first so '_' inside the URL doesn't trip us.
+    body = re.sub(r"\[[^\]]*\]\([^)]*\)", "", CREDIT_LINE)
+    assert not re.search(r"(?<!_)_[^_\s][^_]*[^_\s]_(?!_)", body), (
+        "single-underscore italic markers won't render in Pyrogram 2 markdown"
+    )
+
+
+def test_handler_messages_have_no_unmatched_single_markers() -> None:
+    """Walk every static message string in the handlers and assert no
+    Telegram-Bot-API-style single-marker bold/italic snuck back in. Would
+    have caught the v3 bug where messages rendered with literal '*' / '_'."""
+    import re
+    from pathlib import Path
+
+    repo = Path(__file__).resolve().parent.parent
+    files = [
+        repo / "bot" / "handlers" / "start.py",
+        repo / "bot" / "handlers" / "admin.py",
+        repo / "bot" / "handlers" / "files.py",
+        repo / "bot" / "handlers" / "splits.py",
+        repo / "bot" / "handlers" / "url.py",
+        repo / "bot" / "handlers" / "merge.py",
+        repo / "bot" / "services" / "jobs.py",
+    ]
+    # Match `*X*` where X has no asterisks, the marker isn't doubled, and
+    # the asterisks aren't inside a backtick code span (those are literal).
+    bold = re.compile(r"(?<!\*)(?<!`)\*(?!\*)(?!\s)[^*\n`]+?(?<!\s)\*(?!\*)(?!`)")
+    for f in files:
+        for ln, line in enumerate(f.read_text().splitlines(), 1):
+            stripped = line.lstrip()
+            if not stripped.startswith(('"', "'", "f\"", "f'")):
+                continue
+            if bold.search(line):
+                raise AssertionError(
+                    f"{f.name}:{ln} contains a single-marker bold "
+                    f"that won't render: {line.rstrip()!r}"
+                )

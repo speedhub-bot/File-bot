@@ -56,7 +56,7 @@ class _NullCM:
 class JobManager:
     """Single-process FIFO job runner with two layers of gating:
 
-    * ``_user_lock`` (Semaphore(1)) — only one *non-privileged* job may run
+    * ``_user_lock`` (Semaphore(1)) — only one **non-privileged** job may run
       at a time. Other users get a "you've been queued" message and wait
       their turn. Admin and VIPs bypass this lock entirely.
     * ``_sem`` (Semaphore(max_concurrent_jobs)) — secondary cap that
@@ -102,7 +102,7 @@ class JobManager:
         if not privileged and self.user_busy:
             await client.send_message(
                 req.chat_id,
-                "⏳ *Bot is busy with another user.*\n"
+                "⏳ **Bot is busy with another user.**\n"
                 "I've queued your job — you'll start automatically when the "
                 "current one finishes.",
             )
@@ -127,7 +127,7 @@ class JobManager:
         try:
             progress_msg = await client.send_message(
                 req.chat_id,
-                "📥 *Starting download…*",
+                "📥 **Starting download…**",
             )
             req.progress_msg_id = progress_msg.id
 
@@ -139,7 +139,7 @@ class JobManager:
             part_size = self._resolve_part_size(actual_size, req)
             if part_size >= actual_size:
                 # Single-shot — just re-upload.
-                await self._edit_progress(client, req, "📤 *Uploading file…*")
+                await self._edit_progress(client, req, "📤 **Uploading file…**")
                 await client.send_document(
                     req.chat_id,
                     document=str(downloaded),
@@ -160,7 +160,7 @@ class JobManager:
                     await self._edit_progress(
                         client,
                         req,
-                        f"📤 *Uploading part {part.index}…*",
+                        f"📤 **Uploading part {part.index}…**",
                     )
                     await client.send_document(
                         req.chat_id,
@@ -176,7 +176,7 @@ class JobManager:
                 await update_job(req.job_db_id, parts=idx, status="done", finished=True)
 
             await add_quota_used(req.user_id, actual_size)
-            await self._edit_progress(client, req, "✅ *Done.*", final=True)
+            await self._edit_progress(client, req, "✅ **Done.**", final=True)
 
         except Exception as exc:  # noqa: BLE001
             log.exception("job %s failed", req.job_db_id)
@@ -221,7 +221,7 @@ class JobManager:
             await self._edit_progress(
                 client,
                 req,
-                f"📥 *Downloading*\n`{progress_bar(current, total)}`\n"
+                f"📥 **Downloading**\n`{progress_bar(current, total)}`\n"
                 f"{bytes_human(current)} / {bytes_human(total)}",
             )
 
@@ -248,7 +248,7 @@ class JobManager:
             await self._edit_progress(
                 client,
                 req,
-                f"✂️ *Splitting*\n`{progress_bar(current, total)}`\n"
+                f"✂️ **Splitting**\n`{progress_bar(current, total)}`\n"
                 f"{bytes_human(current)} / {bytes_human(total)}",
             )
 
@@ -266,7 +266,7 @@ class JobManager:
             await self._edit_progress(
                 client,
                 req,
-                f"📤 *Uploading part{suffix}*\n`{progress_bar(current, total)}`\n"
+                f"📤 **Uploading part{suffix}**\n`{progress_bar(current, total)}`\n"
                 f"{bytes_human(current)} / {bytes_human(total)}",
             )
 

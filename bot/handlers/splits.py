@@ -64,9 +64,9 @@ def register(app: Client) -> None:
         prompt = await client.send_message(
             cb.message.chat.id,
             (
-                "Reply with the *part size* (e.g. `100 MB`, `1.5 GB`)."
+                "Reply with the **part size** (e.g. `100 MB`, `1.5 GB`)."
                 if action == "size"
-                else "Reply with the *number of parts* (e.g. `20`)."
+                else "Reply with the **number of parts** (e.g. `20`)."
             ),
             reply_markup=ForceReply(selective=True),
         )

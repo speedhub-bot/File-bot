@@ -138,7 +138,7 @@ def register(app: Client) -> None:
 
         async def _on_progress(done: int, total: int) -> None:
             text = (
-                f"🌐 *Downloading from URL*\n`{progress_bar(done, total)}`\n"
+                f"🌐 **Downloading from URL**\n`{progress_bar(done, total)}`\n"
                 f"{bytes_human(done)} / {bytes_human(total) if total else '?'}"
             )
             try:
@@ -161,7 +161,7 @@ def register(app: Client) -> None:
         # Re-upload to the user as a normal Telegram document so the *split
         # decision* flow can treat it like any other forwarded file.
         await client.edit_message_text(
-            m.chat.id, progress_msg.id, "📤 *Forwarding to Telegram…*"
+            m.chat.id, progress_msg.id, "📤 **Forwarding to Telegram…**"
         )
         sent = await client.send_document(
             m.chat.id,
@@ -183,7 +183,7 @@ def register(app: Client) -> None:
         }
         await client.send_message(
             m.chat.id,
-            f"📁 *{name}*\nSize: *{bytes_human(actual)}*\n\nHow should I split it?",
+            f"📁 **{name}**\nSize: **{bytes_human(actual)}**\n\nHow should I split it?",
             reply_markup=_kb_for_url(),
         )
 

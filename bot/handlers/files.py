@@ -119,8 +119,8 @@ def register(app: Client) -> None:
         }
 
         await m.reply_text(
-            f"📁 *{name}*\n"
-            f"Size: *{bytes_human(size) if size else 'unknown'}*\n\n"
+            f"📁 **{name}**\n"
+            f"Size: **{bytes_human(size) if size else 'unknown'}**\n\n"
             "How would you like me to handle it?",
             reply_markup=_kb_for_file(),
             quote=True,
