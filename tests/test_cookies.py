@@ -1,6 +1,5 @@
-import pytest
-from pathlib import Path
 from bot.services.cookies import CookieExtractor
+
 
 def test_cookie_matching():
     extractor = CookieExtractor("google.com")

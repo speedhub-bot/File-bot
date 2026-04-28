@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 import shutil
@@ -67,28 +68,26 @@ class CookieExtractor:
 
     def process_directory(self, input_dir: Path, output_zip: Path) -> int:
         """
-        Scan directory for Cookies/*.txt and extract matching cookies into output_zip.
-        Returns total count of cookies found.
+        Scan directory for cookie-bearing files and extract matching cookies
+        into *output_zip*.  Returns total count of cookies found.
         """
         total_found = 0
         file_counter = 1
 
-        # Find all .txt files
-        # The original tool looked specifically for "Cookies/*.txt"
-        # but user said "all type of file", so we'll look for any .txt file
-        # that might contain cookies.
-        txt_files = list(input_dir.rglob("*.txt"))
+        # Scan every common log/cookie extension – the original tool only
+        # checked *.txt but real-world log dumps include many variants.
+        _EXTENSIONS = (".txt", ".log", ".csv", ".tsv", ".cookie", ".cookies")
+        candidate_files: list[Path] = []
+        for f in input_dir.rglob("*"):
+            if f.is_file() and f.suffix.lower() in _EXTENSIONS:
+                candidate_files.append(f)
 
-        if not txt_files:
+        if not candidate_files:
             return 0
 
         with zipfile.ZipFile(output_zip, "w", zipfile.ZIP_DEFLATED) as zf:
-            for txt_file in txt_files:
-                # Basic heuristic: only check if it looks like a cookie file or is in a Cookies dir
-                # or just check all .txt files as logs can be named anything.
-                # To be "smart", we'll check if it has Netscape headers or just try to parse.
-
-                matches = self.extract_from_file(txt_file)
+            for cand_file in candidate_files:
+                matches = self.extract_from_file(cand_file)
                 if matches:
                     # Create a unique name in the zip for this source
                     arcname = f"cookies_{self.domain}_{file_counter}.txt"
@@ -99,61 +98,54 @@ class CookieExtractor:
 
         return total_found
 
-async def run_extraction(
+def _sync_extraction(
     input_path: Path,
     domain: str,
-    work_dir: Path
+    work_dir: Path,
 ) -> Optional[Path]:
-    """
-    Handles the full extraction process:
-    1. Unpack if archive
-    2. Extract cookies
-    3. Return path to result zip
-    """
+    """CPU/IO-bound extraction — run via ``asyncio.to_thread``."""
     extractor = CookieExtractor(domain)
     extract_temp = work_dir / "extract"
     extract_temp.mkdir(parents=True, exist_ok=True)
 
     try:
         # 1. Unpack
-        if input_path.suffix.lower() == ".zip":
+        suffix = input_path.suffix.lower()
+        if suffix == ".zip":
             with zipfile.ZipFile(input_path, 'r') as zf:
+                resolved_base = extract_temp.resolve()
                 for member in zf.namelist():
-                    # Security: check for path traversal
                     target = (extract_temp / member).resolve()
-                    if extract_temp.resolve() not in target.parents:
+                    if resolved_base not in target.parents and target != resolved_base:
                         log.warning("Security: skipping malicious zip entry %s", member)
                         continue
                     zf.extract(member, extract_temp)
-        elif input_path.suffix.lower() == ".7z":
+        elif suffix == ".7z":
             with py7zr.SevenZipFile(input_path, mode='r') as sz:
-                # py7zr doesn't have a simple way to check each member before extraction
-                # in some versions, but we can list them.
-                members = sz.getnames()
-                for member in members:
+                resolved_base = extract_temp.resolve()
+                safe_members = []
+                for member in sz.getnames():
                     target = (extract_temp / member).resolve()
-                    if extract_temp.resolve() not in target.parents:
+                    if resolved_base not in target.parents and target != resolved_base:
                         log.warning("Security: skipping malicious 7z entry %s", member)
                         continue
-                sz.extractall(extract_temp)
-        elif input_path.suffix.lower() == ".rar":
-            # For RAR, we try to use shutil.unpack_archive which might work
-            # if the system has unrar/7z installed.
+                    safe_members.append(member)
+                if safe_members:
+                    sz.extract(extract_temp, targets=safe_members)
+        elif suffix == ".rar":
             try:
                 shutil.unpack_archive(str(input_path), str(extract_temp))
             except Exception as e:
                 log.error("Failed to unpack RAR: %s", e)
-                # Fallback: if it's a small file maybe it's just a misnamed txt
                 if input_path.stat().st_size < 1024 * 1024:
                     shutil.copy(input_path, extract_temp / input_path.name)
         else:
-            # Assume it's a single log file or directory
             if input_path.is_file():
                 shutil.copy(input_path, extract_temp / input_path.name)
             else:
                 shutil.copytree(input_path, extract_temp, dirs_exist_ok=True)
 
-        # 2. Extract
+        # 2. Extract cookies
         result_zip = work_dir / f"cookies_{domain.replace('.', '_')}.zip"
         count = extractor.process_directory(extract_temp, result_zip)
 
@@ -163,3 +155,12 @@ async def run_extraction(
 
     finally:
         shutil.rmtree(extract_temp, ignore_errors=True)
+
+
+async def run_extraction(
+    input_path: Path,
+    domain: str,
+    work_dir: Path,
+) -> Optional[Path]:
+    """Offload the heavy I/O work to a thread so the event loop stays free."""
+    return await asyncio.to_thread(_sync_extraction, input_path, domain, work_dir)
