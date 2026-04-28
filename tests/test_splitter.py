@@ -373,3 +373,61 @@ def test_handler_messages_have_no_unmatched_single_markers() -> None:
                     f"{f.name}:{ln} contains a single-marker bold "
                     f"that won't render: {line.rstrip()!r}"
                 )
+
+
+def test_quota_accepts_jobs_with_unlimited_disk_budget(monkeypatch) -> None:
+    """`disk_budget_bytes == 0` must mean 'no explicit cap, fall back to
+    actual free space minus 512 MB slack'. The previous version always
+    rejected every job because `min(0, free_left)` was 0.
+    """
+    import asyncio
+    import tempfile
+    import time
+
+    from bot.config import settings as _settings
+    from bot.db.db import User, _SessionMaker, init_db
+    from bot.services import quota as _quota
+    from bot.services.quota import assert_can_accept
+
+    monkeypatch.setattr(_settings, "disk_budget_bytes", 0)
+    monkeypatch.setattr(_settings, "per_user_daily_bytes", 0)
+    # Pretend the volume has 100 GB free so we definitely have headroom.
+    monkeypatch.setattr(_quota, "free_disk_bytes", lambda: 100 * 1024**3)
+    monkeypatch.setattr(_quota, "disk_used_bytes", lambda: 0)
+
+    uid = int(time.time() * 1000) % (2**31) + 1
+
+    async def _run() -> None:
+        with tempfile.TemporaryDirectory() as d:
+            _settings.work_dir = Path(d)
+            await init_db()
+            async with _SessionMaker() as s:
+                s.add(User(user_id=uid, username="ok", first_name="ok"))
+                await s.commit()
+            # 1 GB file should be fine on a 100 GB free volume.
+            await assert_can_accept(uid, 1024 * 1024 * 1024)
+
+    asyncio.run(_run())
+
+
+def test_health_ready_ok_with_unlimited_disk_budget(monkeypatch) -> None:
+    """`/ready` must return 200 when `disk_budget_bytes == 0` and the
+    actual filesystem has space, not 503 forever (which kept Railway/Fly
+    in a healthcheck-restart loop)."""
+    import asyncio
+
+    from aiohttp.test_utils import make_mocked_request
+
+    from bot.config import settings as _settings
+    from bot.services import health as _health
+
+    monkeypatch.setattr(_settings, "disk_budget_bytes", 0)
+    monkeypatch.setattr(_health, "disk_used_bytes", lambda: 1024)
+    monkeypatch.setattr(_health, "free_disk_bytes", lambda: 10 * 1024**3)
+
+    async def _run() -> None:
+        req = make_mocked_request("GET", "/ready")
+        resp = await _health._ready(req)
+        assert resp.status == 200, f"expected 200 OK, got {resp.status}"
+
+    asyncio.run(_run())
