@@ -61,7 +61,9 @@ def _load_settings_or_die():
 
 
 def _build_client(settings) -> Client:
-    return Client(
+    from pyrogram import enums
+
+    client = Client(
         name="filebot",
         api_id=settings.api_id,
         api_hash=settings.api_hash,
@@ -69,6 +71,12 @@ def _build_client(settings) -> Client:
         in_memory=True,
         max_concurrent_transmissions=2,
     )
+    # Pin the parse mode to MARKDOWN-only. The default in Pyrogram 2 is
+    # MARKDOWN+HTML *combined*, which means literal `<id>`/`<text>`
+    # placeholders inside help strings get treated as unknown HTML tags
+    # and silently stripped. MARKDOWN-only keeps the angle brackets intact.
+    client.parse_mode = enums.ParseMode.MARKDOWN
+    return client
 
 
 async def _amain() -> None:

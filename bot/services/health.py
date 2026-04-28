@@ -30,7 +30,12 @@ async def _ready(_: web.Request) -> web.Response:
     headroom, otherwise 503 so the host can refuse traffic."""
     used = disk_used_bytes()
     free = free_disk_bytes()
-    budget_left = max(0, settings.disk_budget_bytes - used)
+    # `disk_budget_bytes == 0` means "no explicit cap"; in that case the only
+    # headroom check is the real filesystem free space.
+    if settings.disk_budget_bytes > 0:
+        budget_left = max(0, settings.disk_budget_bytes - used)
+    else:
+        budget_left = free
     body: dict[str, Any] = {
         "status": "ok",
         "disk_used": used,

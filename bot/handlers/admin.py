@@ -28,7 +28,17 @@ log = logging.getLogger(__name__)
 
 
 def _is_admin(m: Message) -> bool:
-    return bool(m.from_user and m.from_user.id == settings.admin_id)
+    ok = bool(m.from_user and m.from_user.id == settings.admin_id)
+    if not ok and m.from_user is not None:
+        # Log enough to spot a mismatched ADMIN_ID env var on the host.
+        log.info(
+            "admin command from non-admin user_id=%s (configured admin_id=%s, "
+            "command=%r)",
+            m.from_user.id,
+            settings.admin_id,
+            (m.text or m.caption or "")[:40],
+        )
+    return ok
 
 
 def register(app: Client) -> None:

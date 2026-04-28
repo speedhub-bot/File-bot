@@ -52,11 +52,19 @@ async def assert_can_accept(user_id: int, file_size: int) -> None:
 
     # 1. Headroom on disk: need ~2.0x the file size — once for the original on
     #    disk plus the part files we'll write before each upload+delete.
+    #    `disk_budget_bytes == 0` means "no explicit cap, just respect the
+    #    actual free space on the volume" (useful on fat hosts). Otherwise
+    #    we honour both the configured budget and the real free space.
     headroom = file_size * 2
     used = disk_used_bytes()
-    budget_left = max(0, settings.disk_budget_bytes - used)
     free_left = free_disk_bytes()
-    available = min(budget_left, free_left)
+    if settings.disk_budget_bytes > 0:
+        budget_left = max(0, settings.disk_budget_bytes - used)
+        available = min(budget_left, free_left)
+    else:
+        # Keep ~512 MB of slack so we never fully fill the disk and brick
+        # other system processes.
+        available = max(0, free_left - 512 * 1024 * 1024)
     if headroom > available:
         raise QuotaError(
             f"Not enough scratch space right now (need ~{bytes_human(headroom)}, have "
