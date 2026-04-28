@@ -199,7 +199,18 @@ def register(app: Client) -> None:
                 show_alert=True,
             )
             return
-        await record_access_request(u.id)
+        # The snapshot above (from get_or_create_user) is racy: a concurrent
+        # double-tap, or an admin approve/ban landing between the SELECT and
+        # this point, can mean the row is no longer eligible for a fresh
+        # request. record_access_request re-checks atomically and returns
+        # False in that case — bail out cleanly instead of sending the admin
+        # a phantom notification for a request the DB never accepted.
+        if not await record_access_request(u.id):
+            await q.answer(
+                "Request already pending — please wait for admin review.",
+                show_alert=True,
+            )
+            return
         tag = _user_tag(u.username, u.first_name, u.id)
         try:
             await client.send_message(
